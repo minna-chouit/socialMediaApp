@@ -42,3 +42,6 @@ export const DEFAULT_SETTINGS: Settings = {
   replyWindowMinutes: 15,
   checkinOffsets: { instagram: [3, 7], tiktok: [3, 7, 14], linkedin: [3, 7] },
 };
+
+/** When a variant goes live: its own schedule, else the post's go-live time. */
+export const goesLiveAt = (post: Post, variant: Variant) => variant.scheduledAt ?? post.goLiveAt;

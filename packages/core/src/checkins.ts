@@ -1,4 +1,4 @@
-import type { Temporal } from 'temporal-polyfill';
+import { Temporal } from 'temporal-polyfill';
 import type { Settings, Variant } from './model';
 
 export interface Checkin {
@@ -43,3 +43,7 @@ export function markPosted(variant: Variant, postedAt: Temporal.Instant, setting
     checkins,
   };
 }
+
+/** A check-in is overdue 2 days after it is due, until it is done. */
+export const isOverdue = (checkin: Checkin, now: Temporal.Instant) =>
+  !checkin.doneAt && Temporal.Instant.compare(checkin.dueAt.add({ hours: 48 }), now) <= 0;

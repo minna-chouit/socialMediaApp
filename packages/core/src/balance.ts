@@ -1,8 +1,8 @@
 import { Temporal } from 'temporal-polyfill';
-import { TOPICS, type Pillar, type Post, type Settings, type Variant } from './model';
+import { goesLiveAt, TOPICS, type Pillar, type Post, type Settings, type Variant } from './model';
 import { PLATFORMS, type Platform } from './variants';
-import { STAGES } from './stages';
-import { planningWeek } from './time';
+import { isApprovedOrLater } from './stages';
+import { isWithin as within, planningWeek } from './time';
 
 export type Severity = 'info' | 'warning' | 'error';
 
@@ -28,7 +28,6 @@ interface Item {
   at: Temporal.Instant;
 }
 
-const COUNTED = new Set(STAGES.slice(STAGES.indexOf('approved'), STAGES.indexOf('archived')));
 const PROFESSIONAL: Pillar[] = ['work_lessons', 'pov_journey'];
 const PERSONAL: Platform[] = ['instagram', 'tiktok'];
 const R1_TARGETS = {
@@ -36,9 +35,6 @@ const R1_TARGETS = {
   2: { life_style: 7, student_life: 3, pov_journey: 2 },
 } as const;
 const R6_WEEKLY_TARGET = { 1: 2, 2: 3 } as const;
-
-const within = (at: Temporal.Instant, from: Temporal.Instant, to: Temporal.Instant) =>
-  Temporal.Instant.compare(at, from) >= 0 && Temporal.Instant.compare(at, to) < 0;
 
 const daysBefore = (to: Temporal.Instant, days: number, timeZone: string) =>
   to.toZonedDateTimeISO(timeZone).subtract({ days }).toInstant();
@@ -64,11 +60,11 @@ function planningWeeks(window: Window, timeZone: string): Week[] {
 // Approved-or-later, non-archived variants; stories never count toward balance.
 function countedItems(posts: Post[]): Item[] {
   return posts
-    .filter((p) => COUNTED.has(p.status))
+    .filter((p) => isApprovedOrLater(p.status))
     .flatMap((post) =>
       post.variants
         .filter((v) => v.format !== 'story')
-        .map((variant) => ({ post, variant, at: variant.scheduledAt ?? post.goLiveAt })),
+        .map((variant) => ({ post, variant, at: goesLiveAt(post, variant) })),
     );
 }
 

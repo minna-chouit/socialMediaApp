@@ -21,3 +21,7 @@ export function canMove(from: Stage, to: Stage): boolean {
   const step = STAGES.indexOf(to) - STAGES.indexOf(from);
   return step === 1 || step < 0;
 }
+
+/** Approved or later and not archived: the stages that count as planned (FR-8, FR-17). */
+export const isApprovedOrLater = (stage: Stage) =>
+  STAGES.indexOf(stage) >= STAGES.indexOf('approved') && stage !== 'archived';

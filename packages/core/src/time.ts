@@ -15,3 +15,7 @@ export function planningWeek(
   const start = local.toPlainDate().subtract({ days: daysSinceSaturday }).toZonedDateTime(timeZone);
   return { start: start.toInstant(), end: start.add({ weeks: 1 }).toInstant() };
 }
+
+/** True when `at` is in [from, to). */
+export const isWithin = (at: Temporal.Instant, from: Temporal.Instant, to: Temporal.Instant) =>
+  Temporal.Instant.compare(at, from) >= 0 && Temporal.Instant.compare(at, to) < 0;
