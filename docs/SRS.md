@@ -332,7 +332,7 @@ cadence/
   CLAUDE.md
 ```
 
-pnpm workspaces; TypeScript strict; ESLint + Prettier.
+pnpm workspaces; TypeScript strict; ESLint + Prettier. Toolchain: Node ≥ 24 (the trace script runs as native TypeScript and uses `import.meta.main`; CI uses Node 24) and TypeScript 6.0 (pinned to `~6.0` until typescript-eslint supports TS 7).
 
 ### 8.3 Test stack
 
@@ -355,7 +355,7 @@ Build in this order: pure logic first (M1–M3), then data (M4), then the connec
 | M0 · Scaffold | Monorepo, CI pipeline, local Supabase, lint rule banning `Date` in core, traceability script | The traceability script fails when an SRS ID has no test | CI runs green on the empty project | NFR-8, NFR-10 |
 | M1 · Core: time + pipeline | Clock interface, planning week in owner timezone, stage machine, platform/format rules, verdict math | Friday 23:59 and Saturday 00:00 Algiers fall in different weeks; capture → posted rejected; scores totalling 7, 8, 10, 11 map to bank, improve, improve, go | All transitions covered by a table-driven test | FR-2, FR-4, FR-10 |
 | M2 · Core: rules | Balance R1–R8, check-in generation, weekly report, triggers T1–T3 | One fires and one does-not-fire fixture per rule; T1 needs exactly 4 weeks of data; missing metrics stay null | Every rule has both fixtures; coverage ≥ 90% | R1–R8, T1–T3, FR-5, FR-8, FR-17 |
-| M3 · Core: reminders | Reminder generator, quiet hours, idempotent keys, send-time re-check, LinkedIn fallback, milestone seeding | Generating twice yields the same set (property test); urgent reminders ignore quiet hours; LI_FALLBACK cancelled if a capture exists | All 13 reminder codes tested | FR-13, FR-16, FR-21, FR-23, REM codes |
+| M3 · Core: reminders | Reminder generator, quiet hours, idempotent keys, send-time re-check, LinkedIn fallback, milestone seeding | Generating twice yields the same set (property test); urgent reminders ignore quiet hours; LI_FALLBACK cancelled if a capture exists | All 14 reminder codes tested (REPLY_START and REPLY_END count separately) | FR-13, FR-16, FR-21, FR-23, REM codes |
 | M4 · Database | Migrations, RLS, `cadence_mcp` role, constraints, created_by = claude forces proposed, insert-only change_log | pgTAP: another user sees 0 rows; `cadence_mcp` DELETE fails; LinkedIn reel insert fails | All tables covered by pgTAP | FR-1, FR-3, FR-26, NFR-6 |
 | M5 · MCP connector | All tools, safety rules, rate limit, OAuth, server instructions | Contract: update_post with `status` is rejected; propose_post returns status proposed + warnings; every write logs actor = claude | Added to claude.ai as a custom connector; Claude proposes a real post end to end | FR-28, section 6 |
 | M6 · App: core flows | Sign-in, idea quick-add, approval inbox, post editor, week calendar, media bank, settings, export | Playwright on iPhone viewport: add an idea in ≤ 3 taps; approve a proposed post; change a date in ≤ 2 taps; axe finds 0 violations | All flows pass on WebKit iPhone viewport | FR-6, FR-7, FR-9, FR-11, FR-12, FR-24, FR-25, FR-27, NFR-1, NFR-2 |

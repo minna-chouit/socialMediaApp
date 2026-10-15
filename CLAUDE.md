@@ -22,6 +22,6 @@ Single-user social media planner with an MCP connector for Claude.
 
 ## Commands
 - `pnpm test`       # all unit tests
-- `pnpm test:db`    # pgTAP
-- `pnpm test:e2e`   # Playwright
-- `pnpm trace`      # SRS ID traceability check
+- `pnpm test:db`    # pgTAP (stub until M4)
+- `pnpm test:e2e`   # Playwright (added in M6)
+- `pnpm trace`      # SRS ID traceability check (bump the milestone in package.json each milestone)
