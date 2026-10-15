@@ -8,7 +8,8 @@
     "test:coverage": "vitest run --coverage",
     "typecheck": "tsc",
     "lint": "eslint .",
-    "format:check": "prettier --check ."
+    "format:check": "prettier --check .",
+    "trace": "node scripts/trace.ts M0"
   },
   "devDependencies": {
     "@types/node": "^24.0.0",
