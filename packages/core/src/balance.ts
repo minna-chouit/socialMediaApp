@@ -1,7 +1,8 @@
 import { Temporal } from 'temporal-polyfill';
 import { TOPICS, type Pillar, type Post, type Settings, type Variant } from './model';
-import type { Platform } from './variants';
+import { PLATFORMS, type Platform } from './variants';
 import { STAGES } from './stages';
+import { planningWeek } from './time';
 
 export type Severity = 'info' | 'warning' | 'error';
 
@@ -38,6 +39,24 @@ const within = (at: Temporal.Instant, from: Temporal.Instant, to: Temporal.Insta
 const daysBefore = (to: Temporal.Instant, days: number, timeZone: string) =>
   to.toZonedDateTimeISO(timeZone).subtract({ days }).toInstant();
 
+// Planning weeks overlapping the window, each with its local start date as a label.
+function planningWeeks(window: Window, timeZone: string) {
+  const weeks: (Window & { label: string })[] = [];
+  for (
+    let from = planningWeek(window.from, timeZone).start;
+    Temporal.Instant.compare(from, window.to) < 0;
+  ) {
+    const week = planningWeek(from, timeZone);
+    weeks.push({
+      from: week.start,
+      to: week.end,
+      label: week.start.toZonedDateTimeISO(timeZone).toPlainDate().toString(),
+    });
+    from = week.end;
+  }
+  return weeks;
+}
+
 // Approved-or-later, non-archived variants; stories never count toward balance.
 function countedItems(posts: Post[]): Item[] {
   return posts
@@ -60,10 +79,12 @@ export function checkBalance(
     hypothetical ? [...posts, { ...hypothetical, status: 'approved' }] : posts,
   );
   const inWindow = all.filter((i) => within(i.at, window.from, window.to));
+  const weeks = planningWeeks(window, settings.timeZone);
   return [
     ...r1(all, window, settings),
     ...r2(all, window),
     ...r3(all, window, settings),
+    ...r4(all, weeks),
     ...r5(inWindow),
   ];
 }
@@ -151,4 +172,17 @@ function r3(all: Item[], window: Window, settings: Settings): BalanceWarning[] {
       },
     ];
   });
+}
+
+function r4(all: Item[], weeks: ReturnType<typeof planningWeeks>): BalanceWarning[] {
+  return weeks.flatMap((week) =>
+    PLATFORMS.filter(
+      (platform) =>
+        !all.some((i) => i.variant.platform === platform && within(i.at, week.from, week.to)),
+    ).map((platform): BalanceWarning => ({
+      rule: 'R4',
+      severity: 'warning',
+      message: `No ${platform} post in the week of ${week.label}`,
+    })),
+  );
 }

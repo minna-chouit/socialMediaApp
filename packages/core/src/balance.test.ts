@@ -215,3 +215,47 @@ describe('R3: LinkedIn topic coverage', () => {
     ]);
   });
 });
+
+describe('R4: every platform posts every planning week', () => {
+  const allPlatforms = (fields: Parameters<typeof post>[0] = {}) =>
+    post({
+      ...fields,
+      pillar: 'pov_journey',
+      variants: [
+        {},
+        { platform: 'tiktok', format: 'video' },
+        { platform: 'linkedin', format: 'text' },
+      ],
+    });
+  const r4 = (posts: Post[], window = WEEK) =>
+    only(checkBalance(posts, window, S), 'R4').map((w) => [w.severity, w.message]);
+
+  it('R4: warns when a platform has 0 variants in a planning week', () => {
+    const noTikTok = post({ variants: [{}, { platform: 'linkedin', format: 'text' }] });
+    expect(r4([noTikTok])).toEqual([['warning', 'No tiktok post in the week of 2026-10-17']]);
+  });
+
+  it('R4: no warning when every platform posts', () => {
+    expect(r4([allPlatforms()])).toEqual([]);
+  });
+
+  it('R4: an Instagram story alone does not count', () => {
+    const storyOnly = post({
+      variants: [
+        { format: 'story' },
+        { platform: 'tiktok', format: 'video' },
+        { platform: 'linkedin', format: 'text' },
+      ],
+    });
+    expect(r4([storyOnly])).toEqual([['warning', 'No instagram post in the week of 2026-10-17']]);
+  });
+
+  it('R4: checks each planning week the window touches', () => {
+    const twoWeeks = { from: WEEK.from, to: at('2026-10-30T23:00:00Z') };
+    expect(r4([allPlatforms()], twoWeeks)).toEqual([
+      ['warning', 'No instagram post in the week of 2026-10-24'],
+      ['warning', 'No tiktok post in the week of 2026-10-24'],
+      ['warning', 'No linkedin post in the week of 2026-10-24'],
+    ]);
+  });
+});
