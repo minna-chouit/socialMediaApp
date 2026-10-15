@@ -60,7 +60,7 @@ export function checkBalance(
     hypothetical ? [...posts, { ...hypothetical, status: 'approved' }] : posts,
   );
   const inWindow = all.filter((i) => within(i.at, window.from, window.to));
-  return [...r1(all, window, settings), ...r5(inWindow)];
+  return [...r1(all, window, settings), ...r2(all, window), ...r5(inWindow)];
 }
 
 function r5(items: Item[]): BalanceWarning[] {
@@ -105,4 +105,24 @@ function r1(all: Item[], window: Window, settings: Settings): BalanceWarning[] {
           message: `"${i.post.title}" is work_lessons on ${i.variant.platform} while work on personal platforms is off`,
         }));
   return [...mix, ...work];
+}
+
+function r2(all: Item[], window: Window): BalanceWarning[] {
+  const sorted = [...all].sort((a, b) => Temporal.Instant.compare(a.at, b.at));
+  return sorted.flatMap((item, index): BalanceWarning[] => {
+    const previous = sorted
+      .slice(0, index)
+      .findLast((p) => p.variant.platform === item.variant.platform);
+    if (previous?.post.pillar !== item.post.pillar || !within(item.at, window.from, window.to)) {
+      return [];
+    }
+    return [
+      {
+        rule: 'R2',
+        severity: 'warning',
+        postId: item.post.id,
+        message: `"${item.post.title}" is the second ${item.post.pillar} post in a row on ${item.variant.platform}`,
+      },
+    ];
+  });
 }

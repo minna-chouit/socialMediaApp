@@ -144,3 +144,31 @@ describe('R1: personal pillar mix', () => {
     expect(r1([...mix(5, 2, 1), work], { ...S, workOnPersonal: true })).toEqual([]);
   });
 });
+
+describe('R2: no same pillar twice in a row on one platform', () => {
+  const r2 = (posts: Post[]) =>
+    only(check(posts), 'R2').map((w) => [w.severity, w.postId, w.message]);
+  const on = (day: number, fields: Parameters<typeof post>[0] = {}) =>
+    post({ goLiveAt: at(`2026-10-${day}T10:00:00Z`), ...fields });
+
+  it('R2: warns on two life_style posts in a row on Instagram', () => {
+    const second = on(20, { title: 'Cafe run' });
+    expect(r2([on(19), second])).toEqual([
+      ['warning', second.id, '"Cafe run" is the second life_style post in a row on instagram'],
+    ]);
+  });
+
+  it('R2: no warning when pillars alternate', () => {
+    expect(r2([on(19), on(20, { pillar: 'student_life' }), on(21)])).toEqual([]);
+  });
+
+  it('R2: no warning for the same pillar on different platforms', () => {
+    expect(r2([on(19), on(20, { variants: [{ platform: 'tiktok', format: 'video' }] })])).toEqual(
+      [],
+    );
+  });
+
+  it('R2: compares with the previous variant even when it is before the window', () => {
+    expect(r2([on(15), on(16), on(19)])).toHaveLength(1);
+  });
+});
