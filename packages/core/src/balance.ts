@@ -32,6 +32,7 @@ const R1_TARGETS = {
   1: { life_style: 5, student_life: 2, pov_journey: 1 },
   2: { life_style: 7, student_life: 3, pov_journey: 2 },
 } as const;
+const R6_WEEKLY_TARGET = { 1: 2, 2: 3 } as const;
 
 const within = (at: Temporal.Instant, from: Temporal.Instant, to: Temporal.Instant) =>
   Temporal.Instant.compare(at, from) >= 0 && Temporal.Instant.compare(at, to) < 0;
@@ -86,6 +87,7 @@ export function checkBalance(
     ...r3(all, window, settings),
     ...r4(all, weeks),
     ...r5(inWindow),
+    ...r6(all, weeks, settings),
   ];
 }
 
@@ -185,4 +187,31 @@ function r4(all: Item[], weeks: ReturnType<typeof planningWeeks>): BalanceWarnin
       message: `No ${platform} post in the week of ${week.label}`,
     })),
   );
+}
+
+function r6(
+  all: Item[],
+  weeks: ReturnType<typeof planningWeeks>,
+  settings: Settings,
+): BalanceWarning[] {
+  const target = R6_WEEKLY_TARGET[settings.phase];
+  return weeks.flatMap((week) => {
+    const posts = all.filter(
+      (i) => i.variant.platform === 'instagram' && within(i.at, week.from, week.to),
+    );
+    const missing = (['reel', 'carousel'] as const)
+      .filter((format) => !posts.some((i) => i.variant.format === format))
+      .map((format) => `Instagram has no ${format} in the week of ${week.label}`);
+    const volume =
+      posts.length < target
+        ? [
+            `Instagram has ${posts.length} post${posts.length === 1 ? '' : 's'} in the week of ${week.label}, target ${target}`,
+          ]
+        : [];
+    return [...missing, ...volume].map((message): BalanceWarning => ({
+      rule: 'R6',
+      severity: 'warning',
+      message,
+    }));
+  });
 }

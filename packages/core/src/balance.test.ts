@@ -3,7 +3,7 @@ import { at, only, post, WEEK } from '../test/fixtures';
 import { checkBalance } from './balance';
 import { DEFAULT_SETTINGS as S, type Post, type Topic } from './model';
 import { STAGES } from './stages';
-import type { Platform } from './variants';
+import type { Format, Platform } from './variants';
 
 const check = (posts: Post[], hypothetical?: Post) => checkBalance(posts, WEEK, S, hypothetical);
 const linkedIn = (fields: Parameters<typeof post>[0] = {}) =>
@@ -257,5 +257,41 @@ describe('R4: every platform posts every planning week', () => {
       ['warning', 'No tiktok post in the week of 2026-10-24'],
       ['warning', 'No linkedin post in the week of 2026-10-24'],
     ]);
+  });
+});
+
+describe('R6: Instagram weekly mix and volume', () => {
+  const ig = (...formats: Format[]) => formats.map((format) => post({ variants: [{ format }] }));
+  const r6 = (posts: Post[], settings = S) =>
+    only(checkBalance(posts, WEEK, settings), 'R6').map((w) => [w.severity, w.message]);
+
+  it('R6: none with a reel and a carousel in Phase 1', () => {
+    expect(r6(ig('reel', 'carousel'))).toEqual([]);
+  });
+
+  it('R6: warns with no reel', () => {
+    expect(r6(ig('carousel', 'photo'))).toEqual([
+      ['warning', 'Instagram has no reel in the week of 2026-10-17'],
+    ]);
+  });
+
+  it('R6: warns with no carousel', () => {
+    expect(r6(ig('reel', 'photo', 'story'))).toEqual([
+      ['warning', 'Instagram has no carousel in the week of 2026-10-17'],
+    ]);
+  });
+
+  it('R6: warns below the Phase 1 target of 2', () => {
+    expect(r6(ig('reel', 'story'))).toEqual([
+      ['warning', 'Instagram has no carousel in the week of 2026-10-17'],
+      ['warning', 'Instagram has 1 post in the week of 2026-10-17, target 2'],
+    ]);
+  });
+
+  it('R6: the Phase 2 target is 3', () => {
+    expect(r6(ig('reel', 'carousel'), { ...S, phase: 2 })).toEqual([
+      ['warning', 'Instagram has 2 posts in the week of 2026-10-17, target 3'],
+    ]);
+    expect(r6(ig('reel', 'carousel', 'photo'), { ...S, phase: 2 })).toEqual([]);
   });
 });
