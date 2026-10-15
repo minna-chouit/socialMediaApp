@@ -9,7 +9,7 @@
     "typecheck": "tsc",
     "lint": "eslint .",
     "format:check": "prettier --check .",
-    "trace": "node scripts/trace.ts M0",
+    "trace": "node scripts/trace.ts M1",
     "test:db": "node -e \"console.log('test:db: stub until M4 (supabase init, then supabase test db)')\""
   },
   "devDependencies": {

@@ -75,7 +75,7 @@ Each requirement has an ID that tests reference (e.g. `it('FR-2: rejects capture
 | ID | Requirement | Acceptance criteria |
 | --- | --- | --- |
 | FR-1 | The system MUST create posts with title, pillar, topics, goLiveAt and notes | Owner-created posts start as `idea`; Claude-created posts start as `proposed` with createdBy = claude |
-| FR-2 | Stages MUST be: idea, proposed, approved, capture, edit, write, scheduled, posted, replied, reviewed, plus archived | Forward moves one step only; backward moves to any earlier stage; archive from any stage; capture → posted is rejected; posted → edit is allowed |
+| FR-2 | Stages MUST be: idea, proposed, approved, capture, edit, write, scheduled, posted, replied, reviewed, plus archived | Forward moves one step only; backward moves to any earlier stage; archive from any stage; archived can only be restored to idea; capture → posted is rejected; posted → edit is allowed |
 | FR-3 | The owner MUST be able to edit every post and variant field, including dates, on phone and PC | Every change appends to changeLog with actor, field, old value, new value and timestamp |
 | FR-4 | Each post MUST support one variant per platform | Allowed formats: Instagram reel, carousel, photo, story; TikTok video, photo; LinkedIn text, image, document, video. A LinkedIn reel is rejected |
 | FR-5 | Marking a variant posted MUST set postedAt, start the reply timer and create check-ins | Check-ins at day 3 and 7 for all platforms, plus day 14 for TikTok |
