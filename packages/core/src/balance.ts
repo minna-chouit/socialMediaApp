@@ -18,6 +18,9 @@ export interface Window {
   to: Temporal.Instant;
 }
 
+/** A planning week labelled with its local start date. */
+type Week = Window & { label: string };
+
 /** A variant that counts toward balance, placed at the time it goes live. */
 interface Item {
   post: Post;
@@ -40,9 +43,9 @@ const within = (at: Temporal.Instant, from: Temporal.Instant, to: Temporal.Insta
 const daysBefore = (to: Temporal.Instant, days: number, timeZone: string) =>
   to.toZonedDateTimeISO(timeZone).subtract({ days }).toInstant();
 
-// Planning weeks overlapping the window, each with its local start date as a label.
-function planningWeeks(window: Window, timeZone: string) {
-  const weeks: (Window & { label: string })[] = [];
+// Planning weeks overlapping the window.
+function planningWeeks(window: Window, timeZone: string): Week[] {
+  const weeks: Week[] = [];
   for (
     let from = planningWeek(window.from, timeZone).start;
     Temporal.Instant.compare(from, window.to) < 0;
@@ -89,18 +92,8 @@ export function checkBalance(
     ...r5(inWindow),
     ...r6(all, weeks, settings),
     ...r7(inWindow),
+    ...r8(all, weeks),
   ];
-}
-
-function r5(items: Item[]): BalanceWarning[] {
-  return items
-    .filter((i) => i.variant.platform === 'linkedin' && !PROFESSIONAL.includes(i.post.pillar))
-    .map((i) => ({
-      rule: 'R5',
-      severity: 'error',
-      postId: i.post.id,
-      message: `LinkedIn variant of "${i.post.title}" is ${i.post.pillar}; LinkedIn takes work_lessons or pov_journey only`,
-    }));
 }
 
 function r1(all: Item[], window: Window, settings: Settings): BalanceWarning[] {
@@ -177,7 +170,7 @@ function r3(all: Item[], window: Window, settings: Settings): BalanceWarning[] {
   });
 }
 
-function r4(all: Item[], weeks: ReturnType<typeof planningWeeks>): BalanceWarning[] {
+function r4(all: Item[], weeks: Week[]): BalanceWarning[] {
   return weeks.flatMap((week) =>
     PLATFORMS.filter(
       (platform) =>
@@ -190,11 +183,18 @@ function r4(all: Item[], weeks: ReturnType<typeof planningWeeks>): BalanceWarnin
   );
 }
 
-function r6(
-  all: Item[],
-  weeks: ReturnType<typeof planningWeeks>,
-  settings: Settings,
-): BalanceWarning[] {
+function r5(items: Item[]): BalanceWarning[] {
+  return items
+    .filter((i) => i.variant.platform === 'linkedin' && !PROFESSIONAL.includes(i.post.pillar))
+    .map((i) => ({
+      rule: 'R5',
+      severity: 'error',
+      postId: i.post.id,
+      message: `LinkedIn variant of "${i.post.title}" is ${i.post.pillar}; LinkedIn takes work_lessons or pov_journey only`,
+    }));
+}
+
+function r6(all: Item[], weeks: Week[], settings: Settings): BalanceWarning[] {
   const target = R6_WEEKLY_TARGET[settings.phase];
   return weeks.flatMap((week) => {
     const posts = all.filter(
@@ -228,5 +228,21 @@ function r7(items: Item[]): BalanceWarning[] {
       ? `"${post.title}" has an Instagram post but no TikTok version`
       : `"${post.title}" has a TikTok post but no Instagram version`;
     return [{ rule: 'R7', severity: 'info', postId: post.id, message }];
+  });
+}
+
+function r8(all: Item[], weeks: Week[]): BalanceWarning[] {
+  return weeks.flatMap((week): BalanceWarning[] => {
+    const leftovers = new Set(
+      all.filter((i) => i.post.isLeftovers && within(i.at, week.from, week.to)).map((i) => i.post),
+    );
+    if (leftovers.size <= 1) return [];
+    return [
+      {
+        rule: 'R8',
+        severity: 'warning',
+        message: `${leftovers.size} leftovers posts in the week of ${week.label}, cap 1`,
+      },
+    ];
   });
 }

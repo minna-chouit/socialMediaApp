@@ -328,3 +328,19 @@ describe('R7: Instagram and TikTok are paired', () => {
     expect(r7([story, linkedin])).toEqual([]);
   });
 });
+
+describe('R8: leftovers cap', () => {
+  const r8 = (posts: Post[]) => only(check(posts), 'R8').map((w) => [w.severity, w.message]);
+  const leftovers = () =>
+    post({ isLeftovers: true, variants: [{}, { platform: 'tiktok', format: 'video' }] });
+
+  it('R8: warns on 2 leftovers posts in a week', () => {
+    expect(r8([leftovers(), leftovers(), post()])).toEqual([
+      ['warning', '2 leftovers posts in the week of 2026-10-17, cap 1'],
+    ]);
+  });
+
+  it('R8: none with 1, even with several variants', () => {
+    expect(r8([leftovers(), post()])).toEqual([]);
+  });
+});
