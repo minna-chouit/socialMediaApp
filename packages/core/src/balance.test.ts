@@ -295,3 +295,36 @@ describe('R6: Instagram weekly mix and volume', () => {
     expect(r6(ig('reel', 'carousel', 'photo'), { ...S, phase: 2 })).toEqual([]);
   });
 });
+
+describe('R7: Instagram and TikTok are paired', () => {
+  const r7 = (posts: Post[]) =>
+    only(check(posts), 'R7').map((w) => [w.severity, w.postId, w.message]);
+  const tiktok = { platform: 'tiktok', format: 'video' } as const;
+
+  it('R7: info for an Instagram reel with no TikTok', () => {
+    const p = post({ title: 'Lab day' });
+    expect(r7([p])).toEqual([
+      ['info', p.id, '"Lab day" has an Instagram post but no TikTok version'],
+    ]);
+  });
+
+  it('R7: info for TikTok with no Instagram', () => {
+    const p = post({ title: 'Lab day', variants: [tiktok, { format: 'story' }] });
+    expect(r7([p])).toEqual([
+      ['info', p.id, '"Lab day" has a TikTok post but no Instagram version'],
+    ]);
+  });
+
+  it('R7: none when paired', () => {
+    expect(r7([post({ variants: [{}, tiktok] })])).toEqual([]);
+  });
+
+  it('R7: none for an Instagram story alone or a LinkedIn-only post', () => {
+    const story = post({ variants: [{ format: 'story' }] });
+    const linkedin = post({
+      pillar: 'work_lessons',
+      variants: [{ platform: 'linkedin', format: 'text' }],
+    });
+    expect(r7([story, linkedin])).toEqual([]);
+  });
+});

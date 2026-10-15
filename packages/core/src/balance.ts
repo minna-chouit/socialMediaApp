@@ -88,6 +88,7 @@ export function checkBalance(
     ...r4(all, weeks),
     ...r5(inWindow),
     ...r6(all, weeks, settings),
+    ...r7(inWindow),
   ];
 }
 
@@ -213,5 +214,19 @@ function r6(
       severity: 'warning',
       message,
     }));
+  });
+}
+
+function r7(items: Item[]): BalanceWarning[] {
+  const posts = new Set(items.map((i) => i.post));
+  return [...posts].flatMap((post): BalanceWarning[] => {
+    const has = (platform: Platform) =>
+      post.variants.some((v) => v.platform === platform && v.format !== 'story');
+    const [instagram, tiktok] = [has('instagram'), has('tiktok')];
+    if (instagram === tiktok) return [];
+    const message = instagram
+      ? `"${post.title}" has an Instagram post but no TikTok version`
+      : `"${post.title}" has a TikTok post but no Instagram version`;
+    return [{ rule: 'R7', severity: 'info', postId: post.id, message }];
   });
 }
