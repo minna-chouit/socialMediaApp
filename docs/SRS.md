@@ -194,6 +194,24 @@ Offsets are settings. A check-in is overdue 2 days after it is due. Missing fiel
 - **Done:** planned variants with postedAt set.
 - **Missed:** planned variants with goLiveAt before report time and no postedAt.
 - **Completion rate:** done / planned, or null when planned = 0.
+- Stories count as planned variants in the report (they are only excluded from balance rules).
+
+### 4.6 Clarifications (agreed in M2)
+
+These settle points the rules above leave open. Tests encode them.
+
+1. **Variant go-live time:** a variant's `scheduledAt`, else its post's `goLiveAt`. "Variant goLiveAt" in this document means this.
+2. **Rolling windows:** R1 (28 days) and R3 (42 / 28 days) end at the end of the checked window.
+3. **Stories** never count toward balance rules R1–R8.
+4. **R1** fires when a pillar is off target in either direction (too many or too few).
+5. **T3** "sends" is the check-in `shares` field.
+6. **Null metrics** are missing data: left out of sums and means, never treated as zero. A week with no reach values has no data.
+7. **T1** uses the last 4 planning weeks that ended at least 7 days before evaluation, so their day-7 check-ins are due.
+8. **T2** uses the last 2 finished planning weeks that had at least one planned variant.
+9. **T2 and T3** are not per platform (platform is null); they deduplicate on (rule, null).
+10. **LinkedIn capture** is an idea or media item tagged `linkedin-capture`, by its creation time.
+11. **Check-in due time:** 20:00 local on (local posting date + offset days).
+12. **Rule parameters** are code defaults until settings make them editable (FR-24, M6).
 
 ## 5. Data model
 
