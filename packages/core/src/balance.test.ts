@@ -1,8 +1,9 @@
 import { describe, expect, it } from 'vitest';
 import { at, only, post, WEEK } from '../test/fixtures';
 import { checkBalance } from './balance';
-import { DEFAULT_SETTINGS as S, type Post } from './model';
+import { DEFAULT_SETTINGS as S, type Post, type Topic } from './model';
 import { STAGES } from './stages';
+import type { Platform } from './variants';
 
 const check = (posts: Post[], hypothetical?: Post) => checkBalance(posts, WEEK, S, hypothetical);
 const linkedIn = (fields: Parameters<typeof post>[0] = {}) =>
@@ -170,5 +171,47 @@ describe('R2: no same pillar twice in a row on one platform', () => {
 
   it('R2: compares with the previous variant even when it is before the window', () => {
     expect(r2([on(15), on(16), on(19)])).toHaveLength(1);
+  });
+});
+
+describe('R3: LinkedIn topic coverage', () => {
+  const li = (topics: Topic[], iso: string, platform: Platform = 'linkedin') =>
+    post({
+      pillar: 'work_lessons',
+      topics,
+      goLiveAt: at(iso),
+      variants: [{ platform, format: platform === 'linkedin' ? 'text' : 'reel' }],
+    });
+  const r3 = (posts: Post[]) => only(check(posts), 'R3').map((w) => [w.severity, w.message]);
+  const accessibilityThisWeek = li(['accessibility'], '2026-10-20T10:00:00Z');
+
+  it('R3: warns when a topic has no LinkedIn variant in 42 days', () => {
+    // Window ends Sat 24 Oct 00:00 local, so 42 days starts Sat 12 Sep 00:00 local (11 Sep 23:00 UTC).
+    const justOutside = li(['ai'], '2026-09-11T22:59:00Z');
+    const justInside = li(['uiux', 'gamedev', 'ar'], '2026-09-11T23:00:00Z');
+    expect(r3([justOutside, justInside, accessibilityThisWeek])).toEqual([
+      ['warning', 'No LinkedIn post on ai in the last 42 days'],
+    ]);
+  });
+
+  it('R3: no warning when covered at day 41', () => {
+    expect(
+      r3([li(['ai', 'uiux', 'gamedev', 'ar'], '2026-09-13T10:00:00Z'), accessibilityThisWeek]),
+    ).toEqual([]);
+  });
+
+  it('R3: accessibility needs one in 28 days', () => {
+    const others = li(['ai', 'uiux', 'gamedev', 'ar'], '2026-10-20T10:00:00Z');
+    expect(r3([others, li(['accessibility'], '2026-09-24T10:00:00Z')])).toEqual([
+      ['warning', 'No LinkedIn post on accessibility in the last 28 days'],
+    ]);
+    expect(r3([others, li(['accessibility'], '2026-09-27T10:00:00Z')])).toEqual([]);
+  });
+
+  it('R3: only LinkedIn variants count', () => {
+    const covered = li(['uiux', 'gamedev', 'ar', 'accessibility'], '2026-10-20T10:00:00Z');
+    expect(r3([covered, li(['ai'], '2026-10-20T10:00:00Z', 'instagram')])).toEqual([
+      ['warning', 'No LinkedIn post on ai in the last 42 days'],
+    ]);
   });
 });

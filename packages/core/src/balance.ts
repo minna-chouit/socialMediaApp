@@ -1,5 +1,5 @@
 import { Temporal } from 'temporal-polyfill';
-import type { Pillar, Post, Settings, Variant } from './model';
+import { TOPICS, type Pillar, type Post, type Settings, type Variant } from './model';
 import type { Platform } from './variants';
 import { STAGES } from './stages';
 
@@ -60,7 +60,12 @@ export function checkBalance(
     hypothetical ? [...posts, { ...hypothetical, status: 'approved' }] : posts,
   );
   const inWindow = all.filter((i) => within(i.at, window.from, window.to));
-  return [...r1(all, window, settings), ...r2(all, window), ...r5(inWindow)];
+  return [
+    ...r1(all, window, settings),
+    ...r2(all, window),
+    ...r3(all, window, settings),
+    ...r5(inWindow),
+  ];
 }
 
 function r5(items: Item[]): BalanceWarning[] {
@@ -122,6 +127,27 @@ function r2(all: Item[], window: Window): BalanceWarning[] {
         severity: 'warning',
         postId: item.post.id,
         message: `"${item.post.title}" is the second ${item.post.pillar} post in a row on ${item.variant.platform}`,
+      },
+    ];
+  });
+}
+
+function r3(all: Item[], window: Window, settings: Settings): BalanceWarning[] {
+  return TOPICS.flatMap((topic): BalanceWarning[] => {
+    const days = topic === 'accessibility' ? 28 : 42;
+    const from = daysBefore(window.to, days, settings.timeZone);
+    const covered = all.some(
+      (i) =>
+        i.variant.platform === 'linkedin' &&
+        i.post.topics.includes(topic) &&
+        within(i.at, from, window.to),
+    );
+    if (covered) return [];
+    return [
+      {
+        rule: 'R3',
+        severity: 'warning',
+        message: `No LinkedIn post on ${topic} in the last ${days} days`,
       },
     ];
   });
