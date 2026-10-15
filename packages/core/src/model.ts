@@ -31,10 +31,14 @@ export interface Settings {
   timeZone: string;
   phase: 1 | 2;
   workOnPersonal: boolean;
+  replyWindowMinutes: number;
+  checkinOffsets: Record<Platform, number[]>;
 }
 
 export const DEFAULT_SETTINGS: Settings = {
   timeZone: 'Africa/Algiers',
   phase: 1,
   workOnPersonal: false,
+  replyWindowMinutes: 15,
+  checkinOffsets: { instagram: [3, 7], tiktok: [3, 7, 14], linkedin: [3, 7] },
 };
