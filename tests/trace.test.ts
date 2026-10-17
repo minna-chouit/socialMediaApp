@@ -12,11 +12,15 @@ const srs = readFileSync(join(root, 'docs/SRS.md'), 'utf8');
 // Builds test source text without writing a literal `it('...')` here, which the trace scanner would read.
 const call = (fn: string, title: string) => `${fn}('${title}', () => {});`;
 
-function runTrace(testSource: string) {
+function runTrace(testSource: string, pgTapSource?: string) {
   const dir = mkdtempSync(join(tmpdir(), 'cadence-trace-'));
   mkdirSync(join(dir, 'docs'));
   writeFileSync(join(dir, 'docs/SRS.md'), srs);
   writeFileSync(join(dir, 'a.test.ts'), testSource);
+  if (pgTapSource) {
+    mkdirSync(join(dir, 'supabase/tests'), { recursive: true });
+    writeFileSync(join(dir, 'supabase/tests/a.test.sql'), pgTapSource);
+  }
   return spawnSync(process.execPath, [join(root, 'scripts/trace.ts'), 'M0', dir], {
     encoding: 'utf8',
   });
@@ -63,5 +67,17 @@ describe('NFR-10: SRS traceability', () => {
     for (const tool of ['get_calendar', 'list_milestones', 'list_triggers', 'resolve_trigger']) {
       expect(m5).toContain(tool);
     }
+  });
+
+  it('NFR-10: trace reads pgTAP test descriptions from supabase/tests/*.sql', () => {
+    const run = runTrace(call('it', 'NFR-10: b'), "select ok(true, 'NFR-8: from pgTAP');");
+    expect(run.stderr).toBe('');
+    expect(run.status).toBe(0);
+  });
+
+  it('NFR-10: an ID only in a pgTAP comment does not count', () => {
+    const run = runTrace(call('it', 'NFR-10: b'), `-- NFR-8 is checked elsewhere
+select ok(true, 'rls');`);
+    expect(run.status).toBe(1);
   });
 });

@@ -47,6 +47,12 @@ export function testTitles(source: string): string[] {
   return [...source.matchAll(/\b(?:it|test|describe)\(\s*(['"`])(.*?)\1/g)].map((m) => m[2]);
 }
 
+/** pgTAP descriptions: the string literals in SQL, ignoring -- comments. */
+export function sqlStrings(source: string): string[] {
+  const code = source.replace(/--.*$/gm, '');
+  return [...code.matchAll(/'((?:[^']|'')*)'/g)].map((m) => m[1]);
+}
+
 export function missingIds(ids: string[], titles: string[]): string[] {
   return ids.filter((id) => !titles.some((t) => new RegExp(`(?<![\\w-])${id}(?![\\w-])`).test(t)));
 }
@@ -54,12 +60,14 @@ export function missingIds(ids: string[], titles: string[]): string[] {
 if (import.meta.main) {
   const [milestone, root = '.'] = process.argv.slice(2);
   const ids = milestoneIds(readFileSync(join(root, 'docs/SRS.md'), 'utf8'), milestone);
-  // ponytail: scans TS test files only; add supabase/tests/**/*.sql when pgTAP lands in M4.
-  const files = globSync('**/*.{test,spec}.{ts,tsx}', {
-    cwd: root,
-    exclude: ['**/node_modules/**'],
-  });
-  const titles = files.flatMap((f) => testTitles(readFileSync(join(root, f), 'utf8')));
+  const read = (pattern: string) =>
+    globSync(pattern, { cwd: root, exclude: ['**/node_modules/**'] }).map((f) =>
+      readFileSync(join(root, f), 'utf8'),
+    );
+  const titles = [
+    ...read('**/*.{test,spec}.{ts,tsx}').flatMap(testTitles),
+    ...read('supabase/tests/**/*.sql').flatMap(sqlStrings),
+  ];
   const missing = missingIds(ids, titles);
   if (missing.length) {
     console.error(`${milestone}: no test names these SRS IDs: ${missing.join(', ')}`);
