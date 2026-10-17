@@ -36,7 +36,7 @@ select throws_ok(
   '23505', null, 'FR-5: one check-in per variant per day offset'
 );
 select is(
-  (select reach from public.checkins where day_offset = 3),
+  (select reach from public.checkins where day_offset = 3 order by created_at limit 1),
   null,
   'FR-5: check-in metrics are nullable, never defaulted to zero'
 );
