@@ -361,3 +361,14 @@ describe('CHECKIN', () => {
     expect(shouldSend(reminder, { ...EMPTY, checkins: done }, S)).toBe(false);
   });
 });
+
+describe('FR-13: per-post reminder settings', () => {
+  it('FR-13: a post can switch off a reminder code or override its reply window', () => {
+    const p = post({ reminders: { off: ['POST_NOW', 'MISSED'], replyWindowMinutes: 30 } });
+    const codes = remind({ posts: [p] }).filter((r) => r.entityType === 'variant');
+    expect(codes.map((r) => [r.code, r.at.toString()])).toEqual([
+      ['REPLY_START', '2026-10-19T10:00:00Z'],
+      ['REPLY_END', '2026-10-19T10:30:00Z'],
+    ]);
+  });
+});

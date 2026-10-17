@@ -1,4 +1,5 @@
 import type { Temporal } from 'temporal-polyfill';
+import type { ReminderCode } from './reminders';
 import type { Stage } from './stages';
 import type { Format, Platform } from './variants';
 
@@ -27,6 +28,8 @@ export interface Post {
   goLiveAt: Temporal.Instant;
   isLeftovers: boolean;
   variants: Variant[];
+  /** Per-post overrides of the reminder defaults (FR-13). */
+  reminders?: { off?: ReminderCode[]; replyWindowMinutes?: number };
 }
 
 export interface Settings {

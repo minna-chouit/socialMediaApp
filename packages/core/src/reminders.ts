@@ -135,16 +135,14 @@ function perVariant(data: ReminderData, settings: Settings): Spec[] {
         });
         const dayAfter = live.toZonedDateTimeISO(settings.timeZone).toPlainDate().add({ days: 1 });
         const replies = variant.platform !== 'tiktok' || settings.replyRemindersTikTok;
+        const replyWindow = post.reminders?.replyWindowMinutes ?? settings.replyWindowMinutes;
         return [
           spec('POST_NOW', live),
           spec('MISSED', atLocal(dayAfter, '09:00', settings.timeZone), false),
           ...(replies
-            ? [
-                spec('REPLY_START', live),
-                spec('REPLY_END', live.add({ minutes: settings.replyWindowMinutes })),
-              ]
+            ? [spec('REPLY_START', live), spec('REPLY_END', live.add({ minutes: replyWindow }))]
             : []),
-        ];
+        ].filter((r) => !post.reminders?.off?.includes(r.code));
       }),
     );
 }
