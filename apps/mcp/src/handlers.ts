@@ -1,5 +1,5 @@
 import { Temporal } from 'temporal-polyfill';
-import { checkBalance, metricsSummary, planningWeek } from '@cadence/core';
+import { checkBalance, metricsSummary, planningWeek, reviewIdea } from '@cadence/core';
 import type { Tx } from './db';
 import { coreSettings, inputPost, loadCheckins, loadPosts } from './domain';
 import { output } from './rows';
@@ -67,6 +67,31 @@ const dayRange = (from: unknown, to: unknown, timeZone: string) => [
 
 /** Tool handlers by name; each runs inside one owner transaction (see createServer). */
 export const HANDLERS: Record<string, Handler> = {
+  review_idea: async ({ ideaId, scores, notes, alternatives }, { tx, settings }) => {
+    const [idea] = await tx.query('select id from public.ideas where id = $1', [ideaId]);
+    if (!idea) throw new ToolError(`No idea with id ${ideaId}`);
+    const review = reviewIdea({ scores, notes, alternatives }); // core computes total and verdict
+    const [stored] = await tx.query(
+      `insert into public.idea_verdicts (idea_id, scores, total, verdict, notes, alternatives, by)
+       values ($1, $2, $3, $4, $5, $6::text[], 'claude') returning *`,
+      [
+        ideaId,
+        JSON.stringify(review.scores),
+        review.total,
+        review.verdict,
+        review.notes,
+        textArray(review.alternatives),
+      ],
+    );
+    await tx.query('update public.ideas set status = $2 where id = $1', [
+      ideaId,
+      review.verdict === 'bank' ? 'banked' : 'reviewed',
+    ]);
+    const verdict = output(stored, settings.timezone);
+    await logWrite(tx, { type: 'idea', id: ideaId }, 'verdict', { new: verdict }, review.notes);
+    return verdict;
+  },
+
   create_idea: async ({ text, pillar, topics, tags, reason }, { tx, settings }) => {
     const [idea] = await tx.query(
       `insert into public.ideas (text, source, pillar, topics, tags)

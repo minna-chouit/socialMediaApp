@@ -41,3 +41,72 @@ describe('create_idea', () => {
     ]);
   });
 });
+
+describe('review_idea', () => {
+  const scores = { forwardable: 3, fills_gap: 2, doable: 2, original: 2, hook: 2 }; // 11
+  const newIdea = async () =>
+    (await call(c, 'create_idea', { text: 'Campus at 6am', reason: 'From chat' })).id as string;
+
+  it('review_idea: the verdict is computed by core; a total sent by the client is ignored', async () => {
+    const ideaId = await newIdea();
+    const stored = await call(c, 'review_idea', {
+      ideaId,
+      scores,
+      notes: 'Strong hook; make the first second count.',
+      alternatives: ['Shoot it as a carousel'],
+      total: 3,
+      verdict: 'bank',
+    });
+    expect(stored).toMatchObject({
+      ideaId,
+      total: 11,
+      verdict: 'go',
+      by: 'claude',
+      alternatives: ['Shoot it as a carousel'],
+    });
+    const [idea] = await call(c, 'list_ideas', {});
+    expect(idea).toMatchObject({
+      id: ideaId,
+      status: 'reviewed',
+      latestVerdict: { verdict: 'go', total: 11 },
+    });
+    expect((await changeLog(ideaId)).map((row) => [row.actor, row.field])).toEqual([
+      ['claude', 'created'],
+      ['claude', 'verdict'],
+    ]);
+  });
+
+  it('review_idea: a bank verdict banks the idea', async () => {
+    const ideaId = await newIdea();
+    const low = { forwardable: 1, fills_gap: 1, doable: 2, original: 1, hook: 1 };
+    await call(c, 'review_idea', {
+      ideaId,
+      scores: low,
+      notes: 'Not forwardable.',
+      alternatives: ['Pair it with a POV'],
+    });
+    expect((await call(c, 'list_ideas', {}))[0].status).toBe('banked');
+  });
+
+  it('review_idea: at least one alternative is required', async () => {
+    const ideaId = await newIdea();
+    const result = await call(c, 'review_idea', {
+      ideaId,
+      scores,
+      notes: 'Fine.',
+      alternatives: [],
+    });
+    expect(result.error).toMatch(/alternatives/);
+  });
+
+  it('review_idea: an unknown idea is a clear error', async () => {
+    const ideaId = '99999999-9999-9999-9999-999999999999';
+    const result = await call(c, 'review_idea', {
+      ideaId,
+      scores,
+      notes: 'x',
+      alternatives: ['y'],
+    });
+    expect(result).toEqual({ error: `No idea with id ${ideaId}` });
+  });
+});
