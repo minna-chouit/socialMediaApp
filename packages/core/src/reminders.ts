@@ -1,7 +1,8 @@
 import { Temporal } from 'temporal-polyfill';
 import type { Checkin } from './checkins';
-import type { Post, Settings } from './model';
-import { isWithin } from './time';
+import { goesLiveAt, type Post, type Settings } from './model';
+import { STAGES } from './stages';
+import { isWithin, planningWeek } from './time';
 
 /** Moves a non-urgent reminder inside quiet hours [quietStart, quietEnd) to the end of quiet hours (FR-13). */
 export function applyQuietHours(
@@ -78,6 +79,7 @@ const WEEKLY: {
 }[] = [
   { code: 'WEEKLY_REPORT', weekday: 5, time: (s) => s.reportTime, mirror: true },
   { code: 'BATCH_NIGHT', weekday: 5, time: (s) => s.batchTime, mirror: true },
+  { code: 'SHOT_LIST', weekday: 7, time: () => '18:00', mirror: false },
 ];
 
 const atLocal = (date: Temporal.PlainDate, time: string, timeZone: string) =>
@@ -124,4 +126,19 @@ export function generateReminders(
       key: `${spec.code}:${spec.entityId ?? ''}:${spec.at.toZonedDateTimeISO(timeZone).toPlainDate()}`,
       sendAt: applyQuietHours(spec.at, spec.urgent, settings),
     }));
+}
+
+/** Re-checks a reminder's condition at send time; false means cancel it (section 4.2). */
+export function shouldSend(reminder: Reminder, data: ReminderData, settings: Settings): boolean {
+  const week = planningWeek(reminder.at, settings.timeZone);
+  const goesLiveThisWeek = (post: Post) =>
+    post.variants.some((v) => isWithin(goesLiveAt(post, v), week.start, week.end));
+  switch (reminder.code) {
+    case 'SHOT_LIST':
+      return data.posts.some(
+        (p) => STAGES.indexOf(p.status) <= STAGES.indexOf('capture') && goesLiveThisWeek(p),
+      );
+    default:
+      return true;
+  }
 }

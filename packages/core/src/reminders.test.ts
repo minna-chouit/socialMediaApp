@@ -1,11 +1,12 @@
 import fc from 'fast-check';
 import { Temporal } from 'temporal-polyfill';
 import { describe, expect, it } from 'vitest';
-import { at, WEEK } from '../test/fixtures';
+import { at, post, WEEK } from '../test/fixtures';
 import { DEFAULT_SETTINGS as S } from './model';
 import {
   applyQuietHours,
   generateReminders,
+  shouldSend,
   type Reminder,
   type ReminderCode,
   type ReminderData,
@@ -127,5 +128,43 @@ describe('BATCH_NIGHT', () => {
     ]);
     const later = { ...S, batchTime: '21:00' };
     expect(ofCode(remind({}, later), 'BATCH_NIGHT')[0].at.toString()).toBe('2026-10-23T20:00:00Z');
+  });
+});
+
+describe('SHOT_LIST', () => {
+  const shotList = (fields: Partial<ReminderData>) => {
+    const [reminder] = ofCode(remind(fields), 'SHOT_LIST');
+    return shouldSend(reminder, { ...EMPTY, ...fields }, S);
+  };
+
+  it('SHOT_LIST: Sunday 18:00, not urgent, not mirrored', () => {
+    expect(ofCode(remind(), 'SHOT_LIST').map(summary)).toEqual([
+      {
+        key: 'SHOT_LIST::2026-10-18',
+        at: '2026-10-18T17:00:00Z',
+        sendAt: '2026-10-18T17:00:00Z',
+        urgent: false,
+        mirror: false,
+      },
+    ]);
+  });
+
+  it("SHOT_LIST: sends only while this week's posts are at capture or earlier", () => {
+    expect(shotList({ posts: [post({ status: 'capture' })] })).toBe(true);
+    expect(shotList({ posts: [post({ status: 'idea' })] })).toBe(true);
+    expect(shotList({ posts: [post({ status: 'edit' })] })).toBe(false);
+    expect(shotList({ posts: [post({ status: 'archived' })] })).toBe(false);
+    const nextWeek = post({ status: 'capture', goLiveAt: at('2026-10-26T10:00:00Z') });
+    expect(shotList({ posts: [nextWeek] })).toBe(false);
+  });
+});
+
+describe('FR-13: send-time re-check', () => {
+  it('FR-13: a reminder whose condition no longer holds at send time is cancelled', () => {
+    const p = post({ status: 'capture' });
+    const [reminder] = ofCode(remind({ posts: [p] }), 'SHOT_LIST');
+    expect(shouldSend(reminder, { ...EMPTY, posts: [{ ...p, status: 'edit' }] }, S)).toBe(false);
+    const [report] = ofCode(remind(), 'WEEKLY_REPORT');
+    expect(shouldSend(report, EMPTY, S)).toBe(true);
   });
 });
