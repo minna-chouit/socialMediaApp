@@ -309,3 +309,27 @@ describe('REPLY_START and REPLY_END', () => {
     expect(sendsFor('REPLY_END', [post()])).toBe(false);
   });
 });
+
+describe('MISSED', () => {
+  it('MISSED: 09:00 local the day after go-live, not urgent', () => {
+    const lateMonday = post({ goLiveAt: at('2026-10-19T22:45:00Z') }); // Mon 23:45 local
+    expect(ofCode(remind({ posts: [lateMonday] }), 'MISSED').map(summary)).toEqual([
+      {
+        key: `MISSED:${lateMonday.variants[0].id}:2026-10-20`,
+        at: '2026-10-20T08:00:00Z',
+        sendAt: '2026-10-20T08:00:00Z',
+        urgent: false,
+        mirror: false,
+      },
+    ]);
+  });
+
+  it('MISSED: cancelled if the variant was posted or no longer exists', () => {
+    expect(sendsFor('MISSED', [post()])).toBe(true);
+    const [reminder] = ofCode(remind({ posts: [post()] }), 'MISSED');
+    expect(shouldSend(reminder, EMPTY, S)).toBe(false);
+    expect(
+      sendsFor('MISSED', [post({ variants: [{ postedAt: at('2026-10-19T10:30:00Z') }] })]),
+    ).toBe(false);
+  });
+});

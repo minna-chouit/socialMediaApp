@@ -125,17 +125,19 @@ function perVariant(data: ReminderData, settings: Settings): Spec[] {
     .flatMap((post) =>
       post.variants.flatMap((variant): Spec[] => {
         const live = goesLiveAt(post, variant);
-        const spec = (code: ReminderCode, at: Temporal.Instant): Spec => ({
+        const spec = (code: ReminderCode, at: Temporal.Instant, urgent = true): Spec => ({
           code,
           entityType: 'variant',
           entityId: variant.id,
           at,
-          urgent: true,
+          urgent,
           mirror: false,
         });
+        const dayAfter = live.toZonedDateTimeISO(settings.timeZone).toPlainDate().add({ days: 1 });
         const replies = variant.platform !== 'tiktok' || settings.replyRemindersTikTok;
         return [
           spec('POST_NOW', live),
+          spec('MISSED', atLocal(dayAfter, '09:00', settings.timeZone), false),
           ...(replies
             ? [
                 spec('REPLY_START', live),
@@ -192,6 +194,10 @@ export function shouldSend(reminder: Reminder, data: ReminderData, settings: Set
     case 'POST_NOW': {
       const variant = findVariant(data, reminder.entityId);
       return !!variant && !variant.postedAt && !variant.scheduledNatively;
+    }
+    case 'MISSED': {
+      const variant = findVariant(data, reminder.entityId);
+      return !!variant && !variant.postedAt;
     }
     case 'REPLY_START':
     case 'REPLY_END':
