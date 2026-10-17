@@ -2,4 +2,3 @@ docs/
 CLAUDE.md
 pnpm-lock.yaml
 coverage/
-apps/mcp/api/
