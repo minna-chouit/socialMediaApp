@@ -1,5 +1,7 @@
 import { Temporal } from 'temporal-polyfill';
+import { checkBalance } from '@cadence/core';
 import type { Tx } from './db';
+import { coreSettings, inputPost, loadPosts } from './domain';
 import { output } from './rows';
 import type { ServerDeps } from './server';
 
@@ -29,6 +31,16 @@ const dayRange = (from: unknown, to: unknown, timeZone: string) => [
 
 /** Tool handlers by name; each runs inside one owner transaction (see createServer). */
 export const HANDLERS: Record<string, Handler> = {
+  check_balance: async ({ from, to, hypothetical }, { tx, settings }) => {
+    const [start, end] = dayRange(from, to, settings.timezone);
+    return checkBalance(
+      await loadPosts(tx),
+      { from: Temporal.Instant.from(start), to: Temporal.Instant.from(end) },
+      coreSettings(settings),
+      hypothetical ? inputPost(hypothetical as Row, 'hypothetical') : undefined,
+    );
+  },
+
   get_post: async ({ id }, { tx, settings }) => {
     const tz = settings.timezone;
     const [post] = await tx.query('select * from public.posts where id = $1', [id]);

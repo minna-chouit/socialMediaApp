@@ -108,3 +108,33 @@ describe('get_post', () => {
     expect(await call(c, 'get_post', { id })).toEqual({ error: `No post with id ${id}` });
   });
 });
+
+describe('check_balance', () => {
+  const week = { from: '2026-11-07', to: '2026-11-13' }; // an empty planning week
+  const linkedinLifeStyle = {
+    title: 'Dorm tour on LinkedIn',
+    pillar: 'life_style',
+    topics: [],
+    goLiveAt: '2026-11-10T12:00:00+01:00',
+    variants: [{ platform: 'linkedin', format: 'text' }],
+  };
+
+  it('check_balance: warnings for the range, with a hypothetical post', async () => {
+    const without = await call(c, 'check_balance', week);
+    expect(without.filter((w: { rule: string }) => w.rule === 'R5')).toEqual([]);
+    expect(without).toContainEqual({
+      rule: 'R4',
+      severity: 'warning',
+      message: 'No instagram post in the week of 2026-11-07',
+    });
+
+    const withPost = await call(c, 'check_balance', { ...week, hypothetical: linkedinLifeStyle });
+    expect(withPost).toContainEqual({
+      rule: 'R5',
+      severity: 'error',
+      postId: 'hypothetical',
+      message:
+        'LinkedIn variant of "Dorm tour on LinkedIn" is life_style; LinkedIn takes work_lessons or pov_journey only',
+    });
+  });
+});
