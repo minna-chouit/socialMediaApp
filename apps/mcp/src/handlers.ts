@@ -23,6 +23,36 @@ const textArray = (values: unknown) =>
     .map((v) => `"${v.replaceAll('\\', '\\\\').replaceAll('"', '\\"')}"`)
     .join(',')}}`;
 
+/**
+ * Section 6.2 rule 3 for writes the database triggers do not log (creates; milestone and trigger
+ * updates). Post and variant updates are logged by the FR-3 trigger with the same reason.
+ */
+async function logWrite(
+  tx: Tx,
+  entity: { type: string; id: unknown },
+  field: string,
+  change: { old?: unknown; new: unknown },
+  reason: unknown,
+) {
+  await tx.query(
+    `insert into public.change_log (entity_type, entity_id, actor, field, old_value, new_value, reason)
+     values ($1, $2, 'claude', $3, $4, $5, $6)`,
+    [
+      entity.type,
+      entity.id,
+      field,
+      JSON.stringify(change.old ?? null),
+      JSON.stringify(change.new),
+      reason,
+    ],
+  );
+}
+
+// Enum arrays come back from the drivers as '{a,b}' text, so these cast topics to text[].
+const IDEA = 'id, text, source, tags, pillar, topics::text[] as topics, status, created_at';
+const POST = `id, title, pillar, topics::text[] as topics, status, go_live_at, notes, is_leftovers,
+  idea_id, created_by, reminder_overrides, created_at`;
+
 type Handler = (args: Record<string, unknown>, ctx: Context) => Promise<unknown>;
 
 /** [start of `from`, start of the day after `to`) in the owner's timezone, as ISO instants. */
@@ -37,6 +67,22 @@ const dayRange = (from: unknown, to: unknown, timeZone: string) => [
 
 /** Tool handlers by name; each runs inside one owner transaction (see createServer). */
 export const HANDLERS: Record<string, Handler> = {
+  create_idea: async ({ text, pillar, topics, tags, reason }, { tx, settings }) => {
+    const [idea] = await tx.query(
+      `insert into public.ideas (text, source, pillar, topics, tags)
+       values ($1, 'chat', $2, $3::public.topic[], $4::text[]) returning ${IDEA}`,
+      [text, pillar ?? null, textArray(topics), textArray(tags)],
+    );
+    await logWrite(
+      tx,
+      { type: 'idea', id: idea.id },
+      'created',
+      { new: output(idea, settings.timezone) },
+      reason,
+    );
+    return output(idea, settings.timezone);
+  },
+
   list_triggers: async ({ unresolvedOnly }, { tx, settings }) => {
     const rows = await tx.query(
       'select * from public.triggers where not $1 or resolved_at is null order by fired_at desc',
@@ -121,7 +167,7 @@ export const HANDLERS: Record<string, Handler> = {
 
   list_ideas: async ({ status, limit }, { tx, settings }) => {
     const rows = await tx.query(
-      `select i.*, (select to_jsonb(v) - 'owner_id' - 'updated_at' - 'idea_id' from public.idea_verdicts v
+      `select ${IDEA}, (select to_jsonb(v) - 'owner_id' - 'updated_at' - 'idea_id' from public.idea_verdicts v
                      where v.idea_id = i.id order by v.created_at desc limit 1) as latest_verdict
          from public.ideas i
         where $1::public.idea_status is null or i.status = $1
@@ -143,7 +189,7 @@ export const HANDLERS: Record<string, Handler> = {
 
   get_post: async ({ id }, { tx, settings }) => {
     const tz = settings.timezone;
-    const [post] = await tx.query('select * from public.posts where id = $1', [id]);
+    const [post] = await tx.query(`select ${POST} from public.posts where id = $1`, [id]);
     if (!post) throw new ToolError(`No post with id ${id}`);
     const variants = await tx.query(
       'select * from public.variants where post_id = $1 order by platform',

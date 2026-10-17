@@ -76,6 +76,7 @@ describe('get_post', () => {
     const { postId, variantIds } = await seedPost(c.pg, {
       title: 'Dorm tour',
       goLiveAt: '2026-10-20T17:00:00Z',
+      topics: ['uiux', 'ai'],
     });
     const {
       rows: [media],
@@ -93,6 +94,7 @@ describe('get_post', () => {
     expect(post).toMatchObject({
       id: postId,
       title: 'Dorm tour v2',
+      topics: ['uiux', 'ai'],
       status: 'approved',
       goLiveAt: '2026-10-20T18:00:00+01:00',
       variants: [{ id: variantIds[0], platform: 'instagram', format: 'reel', postedAt: null }],
