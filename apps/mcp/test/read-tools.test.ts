@@ -1,5 +1,5 @@
 import { beforeAll, describe, expect, it } from 'vitest';
-import { call, connect, seedPost } from './harness';
+import { call, connect, OWNER, seedPost } from './harness';
 
 let c: Awaited<ReturnType<typeof connect>>;
 beforeAll(async () => {
@@ -68,5 +68,43 @@ describe('get_calendar', () => {
         postedAt: null,
       },
     ]);
+  });
+});
+
+describe('get_post', () => {
+  it('get_post: post with variants, linked media and change log', async () => {
+    const { postId, variantIds } = await seedPost(c.pg, {
+      title: 'Dorm tour',
+      goLiveAt: '2026-10-20T17:00:00Z',
+    });
+    const {
+      rows: [media],
+    } = await c.pg.query<{ id: string }>(
+      `insert into public.media (owner_id, storage_path, kind, size_bytes) values ($1, 'o/a.jpg', 'photo', 10) returning id`,
+      [OWNER],
+    );
+    await c.pg.query(
+      'insert into public.post_media (owner_id, post_id, media_id) values ($1, $2, $3)',
+      [OWNER, postId, media.id],
+    );
+    await c.pg.query(`update public.posts set title = 'Dorm tour v2' where id = $1`, [postId]);
+
+    const post = await call(c, 'get_post', { id: postId });
+    expect(post).toMatchObject({
+      id: postId,
+      title: 'Dorm tour v2',
+      status: 'approved',
+      goLiveAt: '2026-10-20T18:00:00+01:00',
+      variants: [{ id: variantIds[0], platform: 'instagram', format: 'reel', postedAt: null }],
+      media: [{ id: media.id, storagePath: 'o/a.jpg', kind: 'photo' }],
+      changeLog: [
+        { actor: 'owner', field: 'title', oldValue: 'Dorm tour', newValue: 'Dorm tour v2' },
+      ],
+    });
+  });
+
+  it('get_post: an unknown id returns a not-found error', async () => {
+    const id = '99999999-9999-9999-9999-999999999999';
+    expect(await call(c, 'get_post', { id })).toEqual({ error: `No post with id ${id}` });
   });
 });

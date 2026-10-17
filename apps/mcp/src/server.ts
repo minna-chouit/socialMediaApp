@@ -2,7 +2,7 @@ import { ideaReviewInput, PILLARS, PLATFORMS, FORMATS, TOPICS, type Clock } from
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { z } from 'zod';
 import type { Db } from './db';
-import { HANDLERS, type Context } from './handlers';
+import { HANDLERS, ToolError, type Context } from './handlers';
 
 export interface ServerDeps {
   db: Db;
@@ -32,7 +32,8 @@ Cadence computes the verdict: 11 or more is go, 8 to 10 is improve (say what to 
 
 Feedback style: be direct, and always give at least one alternative.`;
 
-const id = z.uuid();
+// Any 8-4-4-4-12 hex id; Postgres does not require an RFC 4122 version digit.
+const id = z.guid();
 const date = z.iso.date();
 const dateTime = z.iso.datetime({ offset: true });
 const reason = z
@@ -230,12 +231,19 @@ export function createServer(deps: ServerDeps): McpServer {
         // Scaffolding: each tool gets its handler in its own red/green cycle.
         if (!handler) return fail(`${tool.name} is not implemented yet`);
         const reason = typeof args.reason === 'string' ? args.reason : null;
-        return ok(
-          await deps.db(deps.ownerId, reason, async (tx) => {
-            const [settings] = await tx.query<Context['settings']>('select * from public.settings');
-            return handler(args, { tx, settings, deps });
-          }),
-        );
+        try {
+          return ok(
+            await deps.db(deps.ownerId, reason, async (tx) => {
+              const [settings] = await tx.query<Context['settings']>(
+                'select * from public.settings',
+              );
+              return handler(args, { tx, settings, deps });
+            }),
+          );
+        } catch (error) {
+          if (error instanceof ToolError) return fail(error.message);
+          throw error;
+        }
       },
     );
   }
