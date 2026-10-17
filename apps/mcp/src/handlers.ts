@@ -72,7 +72,7 @@ const dayRange = (from: unknown, to: unknown, timeZone: string) => [
 ];
 
 /** A post with its variants, linked media and change log (get_post, and the result of post writes). */
-async function readPost(tx: Tx, id: unknown, tz: string) {
+async function readPost(tx: Tx, id: unknown, tz: string): Promise<Row & { variants: Row[] }> {
   const [post] = await tx.query(`select ${POST} from public.posts where id = $1`, [id]);
   if (!post) throw new ToolError(`No post with id ${id}`);
   const variants = await tx.query(
@@ -109,8 +109,46 @@ async function weekWarnings(tx: Tx, goLiveAt: unknown, settings: Context['settin
   );
 }
 
+/** Patch keys Claude may change, mapped to columns. Stage and postedAt are not here (rule 2). */
+type Columns = Record<
+  string,
+  { column: string; cast?: string; toDb?: (value: unknown) => unknown }
+>;
+const POST_PATCH: Columns = {
+  title: { column: 'title' },
+  pillar: { column: 'pillar' },
+  topics: { column: 'topics', cast: '::public.topic[]', toDb: textArray },
+  goLiveAt: { column: 'go_live_at' },
+  ideaId: { column: 'idea_id' },
+  isLeftovers: { column: 'is_leftovers' },
+  notes: { column: 'notes' },
+};
+
+/** Applies a validated patch; false when no row with that id is visible to the owner. */
+async function applyPatch(tx: Tx, table: string, id: unknown, patch: Row, columns: Columns) {
+  const entries = Object.entries(patch).filter(([key]) => key in columns);
+  if (!entries.length) throw new ToolError('The patch changes nothing');
+  const sets = entries.map(
+    ([key], i) => `${columns[key].column} = $${i + 2}${columns[key].cast ?? ''}`,
+  );
+  const values = entries.map(([key, value]) => columns[key].toDb?.(value) ?? value);
+  const rows = await tx.query(
+    `update public.${table} set ${sets.join(', ')} where id = $1 returning id`,
+    [id, ...values],
+  );
+  return rows.length > 0;
+}
+
 /** Tool handlers by name; each runs inside one owner transaction (see createServer). */
 export const HANDLERS: Record<string, Handler> = {
+  update_post: async ({ id, patch }, { tx, settings }) => {
+    if (!(await applyPatch(tx, 'posts', id, patch as Row, POST_PATCH))) {
+      throw new ToolError(`No post with id ${id}`);
+    }
+    const post = await readPost(tx, id, settings.timezone);
+    return { post, warnings: await weekWarnings(tx, post.goLiveAt, settings) };
+  },
+
   propose_post: async (args, { tx, settings }) => {
     const variants = args.variants as Row[];
     const problems = checkVariants(variants as Parameters<typeof checkVariants>[0]);

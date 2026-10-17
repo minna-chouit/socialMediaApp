@@ -159,3 +159,54 @@ describe('propose_post', () => {
     expect(await call(c, 'get_calendar', { from: '2026-10-24', to: '2026-10-30' })).toEqual([]);
   });
 });
+
+describe('update_post', () => {
+  const propose = async () =>
+    (
+      await call(c, 'propose_post', {
+        title: 'Gym vlog',
+        pillar: 'life_style',
+        topics: [],
+        goLiveAt: '2026-10-27T19:00:00+01:00',
+        variants: [{ platform: 'instagram', format: 'reel' }],
+        reason: 'Fills the life_style slot',
+      })
+    ).post.id as string;
+
+  it('update_post: applies the patch and logs actor claude with the reason', async () => {
+    const id = await propose();
+    const result = await call(c, 'update_post', {
+      id,
+      patch: { title: 'Gym vlog: leg day', goLiveAt: '2026-10-28T19:00:00+01:00' },
+      reason: 'Wednesday has no other post',
+    });
+    expect(result.post).toMatchObject({
+      id,
+      title: 'Gym vlog: leg day',
+      goLiveAt: '2026-10-28T19:00:00+01:00',
+      status: 'proposed',
+    });
+    expect(Array.isArray(result.warnings)).toBe(true);
+    const updates = (await changeLog(id)).filter((row) => row.field !== 'created');
+    expect(updates.map((row) => [row.actor, row.field, row.reason])).toEqual([
+      ['claude', 'go_live_at', 'Wednesday has no other post'],
+      ['claude', 'title', 'Wednesday has no other post'],
+    ]);
+  });
+
+  it('update_post: a patch with status or postedAt is rejected', async () => {
+    const id = await propose();
+    for (const patch of [{ status: 'approved' }, { postedAt: '2026-10-27T19:00:00+01:00' }]) {
+      const result = await call(c, 'update_post', { id, patch, reason: 'Approve it' });
+      expect(result.error).toMatch(/status|postedAt/);
+    }
+    expect((await call(c, 'get_post', { id })).status).toBe('proposed');
+  });
+
+  it('update_post: an unknown post is a clear error', async () => {
+    const id = '99999999-9999-9999-9999-999999999999';
+    expect(await call(c, 'update_post', { id, patch: { title: 'x' }, reason: 'y' })).toEqual({
+      error: `No post with id ${id}`,
+    });
+  });
+});
