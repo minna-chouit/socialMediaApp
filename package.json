@@ -10,7 +10,7 @@
     "lint": "eslint .",
     "format:check": "prettier --check .",
     "trace": "node scripts/trace.ts M3",
-    "test:db": "node -e \"console.log('test:db: stub until M4 (supabase init, then supabase test db)')\""
+    "test:db": "supabase test db"
   },
   "devDependencies": {
     "@types/node": "^24.0.0",
