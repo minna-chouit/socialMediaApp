@@ -12,8 +12,8 @@ import {
   type Reminder,
   type ReminderCode,
   type ReminderData,
-  type Window,
 } from './reminders';
+import type { Window } from './time';
 
 // Algiers is UTC+1, so local 23:45 on the 19th is 22:45 UTC.
 const quiet = (utc: string, urgent = false, settings = S) =>

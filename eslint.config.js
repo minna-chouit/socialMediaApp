@@ -5,6 +5,9 @@ export default defineConfig(
   { ignores: ['**/node_modules/**', 'coverage/**', '**/dist/**'] },
   tseslint.configs.recommended,
   {
+    rules: { '@typescript-eslint/no-unused-vars': ['error', { argsIgnorePattern: '^_' }] },
+  },
+  {
     // NFR-8: core reads time only through the injected Clock.
     files: ['packages/core/**'],
     rules: {

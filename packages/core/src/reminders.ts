@@ -3,7 +3,7 @@ import type { Checkin } from './checkins';
 import type { Milestone } from './milestones';
 import { goesLiveAt, type Post, type Settings } from './model';
 import { isApprovedOrLater, STAGES } from './stages';
-import { isWithin, planningWeek } from './time';
+import { isWithin, planningWeek, type Window } from './time';
 import type { TriggerRecord } from './triggers';
 
 /** Moves a non-urgent reminder inside quiet hours [quietStart, quietEnd) to the end of quiet hours (FR-13). */
@@ -65,11 +65,6 @@ export interface ReminderData {
   captureItems: { tags: string[]; createdAt: Temporal.Instant }[];
   milestones: Milestone[];
   triggers: (TriggerRecord & { id: string; firedAt: Temporal.Instant })[];
-}
-
-export interface Window {
-  from: Temporal.Instant;
-  to: Temporal.Instant;
 }
 
 type Spec = Pick<Reminder, 'code' | 'entityType' | 'entityId' | 'at' | 'urgent' | 'mirror'>;

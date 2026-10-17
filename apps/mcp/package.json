@@ -1,0 +1,16 @@
+{
+  "name": "@cadence/mcp",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "dependencies": {
+    "@cadence/core": "workspace:*",
+    "@modelcontextprotocol/sdk": "1.32.1",
+    "postgres": "3.4.9",
+    "temporal-polyfill": "^1.0.6",
+    "zod": "^4.6.7"
+  },
+  "devDependencies": {
+    "@electric-sql/pglite": "0.5.10"
+  }
+}

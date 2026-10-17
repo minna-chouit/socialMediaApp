@@ -8,5 +8,13 @@
     "noEmit": true,
     "skipLibCheck": true
   },
-  "include": ["packages/*/src", "packages/*/test", "tests", "scripts", "*.ts"]
+  "include": [
+    "packages/*/src",
+    "packages/*/test",
+    "apps/*/src",
+    "apps/*/test",
+    "tests",
+    "scripts",
+    "*.ts"
+  ]
 }

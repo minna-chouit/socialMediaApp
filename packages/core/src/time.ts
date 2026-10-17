@@ -1,5 +1,11 @@
 import { Temporal } from 'temporal-polyfill';
 
+/** A half-open time range [from, to). */
+export interface Window {
+  from: Temporal.Instant;
+  to: Temporal.Instant;
+}
+
 /** The only source of "now" in core (NFR-8). */
 export interface Clock {
   now(): Temporal.Instant;

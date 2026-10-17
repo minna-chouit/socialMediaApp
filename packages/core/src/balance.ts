@@ -2,7 +2,7 @@ import { Temporal } from 'temporal-polyfill';
 import { goesLiveAt, TOPICS, type Pillar, type Post, type Settings, type Variant } from './model';
 import { PLATFORMS, type Platform } from './variants';
 import { isApprovedOrLater } from './stages';
-import { isWithin as within, planningWeek } from './time';
+import { isWithin as within, planningWeek, type Window } from './time';
 
 export type Severity = 'info' | 'warning' | 'error';
 
@@ -11,11 +11,6 @@ export interface BalanceWarning {
   severity: Severity;
   message: string;
   postId?: string;
-}
-
-export interface Window {
-  from: Temporal.Instant;
-  to: Temporal.Instant;
 }
 
 /** A planning week labelled with its local start date. */
