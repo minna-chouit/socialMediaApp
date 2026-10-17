@@ -249,3 +249,38 @@ describe('get_weekly_report', () => {
     ).toBeNull();
   });
 });
+
+describe('get_checkins', () => {
+  it('get_checkins: check-ins due in range with metrics; missing metrics stay null', async () => {
+    const { variantIds } = await seedPost(
+      c.pg,
+      { title: 'Reel for check-ins', goLiveAt: '2026-09-28T17:00:00Z' },
+      [{ platform: 'instagram', format: 'reel', postedAt: '2026-09-28T17:05:00Z' }],
+    );
+    const checkin = (offset: number, due: string, reach: number | null, doneAt: string | null) =>
+      c.pg.query(
+        `insert into public.checkins (owner_id, variant_id, day_offset, due_at, done_at, views, reach)
+         values ($1, $2, $3, $4, $5, $6, $7)`,
+        [OWNER, variantIds[0], offset, due, doneAt, reach === null ? null : reach * 3, reach],
+      );
+    await checkin(3, '2026-10-01T19:00:00Z', 400, '2026-10-01T19:30:00Z');
+    await checkin(7, '2026-10-05T19:00:00Z', null, null);
+
+    expect(await call(c, 'get_checkins', { from: '2026-10-01', to: '2026-10-03' })).toEqual([
+      expect.objectContaining({
+        variantId: variantIds[0],
+        platform: 'instagram',
+        title: 'Reel for check-ins',
+        dayOffset: 3,
+        dueAt: '2026-10-01T20:00:00+01:00',
+        doneAt: '2026-10-01T20:30:00+01:00',
+        views: 1200,
+        reach: 400,
+        likes: null,
+        saves: null,
+      }),
+    ]);
+    const [pending] = await call(c, 'get_checkins', { from: '2026-10-04', to: '2026-10-06' });
+    expect(pending).toMatchObject({ dayOffset: 7, doneAt: null, views: null, reach: null });
+  });
+});

@@ -37,6 +37,16 @@ const dayRange = (from: unknown, to: unknown, timeZone: string) => [
 
 /** Tool handlers by name; each runs inside one owner transaction (see createServer). */
 export const HANDLERS: Record<string, Handler> = {
+  get_checkins: async ({ from, to }, { tx, settings }) => {
+    const rows = await tx.query(
+      `select c.*, v.platform, p.id as post_id, p.title from public.checkins c
+         join public.variants v on v.id = c.variant_id join public.posts p on p.id = v.post_id
+        where c.due_at >= $1 and c.due_at < $2 order by c.due_at, v.platform`,
+      dayRange(from, to, settings.timezone),
+    );
+    return rows.map((row) => output(row, settings.timezone));
+  },
+
   get_weekly_report: async ({ weekStart }, { tx, settings }) => {
     const [report] = await tx.query(
       `select week_start::text, payload, generated_at, ready_for_claude_at from public.weekly_reports
