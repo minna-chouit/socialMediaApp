@@ -220,3 +220,32 @@ describe('list_media', () => {
     expect(unusedCampus.map((m: { id: string }) => m.id)).toEqual([unused]);
   });
 });
+
+describe('get_weekly_report', () => {
+  it('get_weekly_report: no report ready yet is a clear error', async () => {
+    expect(await call(c, 'get_weekly_report')).toEqual({
+      error: 'No weekly report is ready for Claude yet',
+    });
+  });
+
+  it('get_weekly_report: defaults to the latest report the owner marked ready for Claude', async () => {
+    const report = (week: string, ready: string | null) =>
+      c.pg.query(
+        `insert into public.weekly_reports (owner_id, week_start, payload, generated_at, ready_for_claude_at)
+         values ($1, $2, $3, $4, $5)`,
+        [OWNER, week, JSON.stringify({ weekStart: week }), `${week}T19:00:00Z`, ready],
+      );
+    await report('2026-10-10', '2026-10-16T21:00:00Z');
+    await report('2026-10-17', '2026-10-23T21:00:00Z');
+    await report('2026-10-24', null);
+    expect(await call(c, 'get_weekly_report')).toEqual({
+      weekStart: '2026-10-17',
+      payload: { weekStart: '2026-10-17' },
+      generatedAt: '2026-10-17T20:00:00+01:00',
+      readyForClaudeAt: '2026-10-23T22:00:00+01:00',
+    });
+    expect(
+      (await call(c, 'get_weekly_report', { weekStart: '2026-10-24' })).readyForClaudeAt,
+    ).toBeNull();
+  });
+});

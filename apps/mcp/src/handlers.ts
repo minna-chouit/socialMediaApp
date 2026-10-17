@@ -37,6 +37,23 @@ const dayRange = (from: unknown, to: unknown, timeZone: string) => [
 
 /** Tool handlers by name; each runs inside one owner transaction (see createServer). */
 export const HANDLERS: Record<string, Handler> = {
+  get_weekly_report: async ({ weekStart }, { tx, settings }) => {
+    const [report] = await tx.query(
+      `select week_start::text, payload, generated_at, ready_for_claude_at from public.weekly_reports
+        where ($1::date is null and ready_for_claude_at is not null) or week_start = $1::date
+        order by week_start desc limit 1`,
+      [weekStart ?? null],
+    );
+    if (!report) {
+      throw new ToolError(
+        weekStart
+          ? `No weekly report for the week of ${weekStart}`
+          : 'No weekly report is ready for Claude yet',
+      );
+    }
+    return output(report, settings.timezone);
+  },
+
   list_media: async ({ tags, unusedOnly, limit }, { tx, settings, deps }) => {
     const rows = await tx.query(
       `select m.* from public.media m
