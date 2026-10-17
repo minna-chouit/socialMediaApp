@@ -85,5 +85,5 @@ alter table public.follower_snapshots
 alter table public.milestones add constraint one_milestone_per_week unique (owner_id, kind, week);
 
 -- FR-22: one unresolved trigger per rule and platform (platform may be null for T2, T3).
-create unique index one_unresolved_trigger on public.triggers (owner_id, rule, coalesce(platform::text, ''))
-  where resolved_at is null;
+create unique index one_unresolved_trigger on public.triggers (owner_id, rule, platform)
+  nulls not distinct where resolved_at is null;
