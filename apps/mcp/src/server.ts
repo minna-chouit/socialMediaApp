@@ -2,7 +2,7 @@ import { ideaReviewInput, PILLARS, PLATFORMS, FORMATS, TOPICS, type Clock } from
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { z } from 'zod';
 import type { Db } from './db';
-import { HANDLERS, ToolError, type Context } from './handlers';
+import { enforceWriteLimit, HANDLERS, ToolError, type Context } from './handlers';
 
 export interface ServerDeps {
   db: Db;
@@ -219,6 +219,8 @@ export function createServer(deps: ServerDeps): McpServer {
     { instructions: INSTRUCTIONS },
   );
   for (const tool of TOOLS) {
+    const handler = HANDLERS[tool.name];
+    if (!handler) throw new Error(`No handler for tool ${tool.name}`);
     server.registerTool(
       tool.name,
       {
@@ -229,9 +231,6 @@ export function createServer(deps: ServerDeps): McpServer {
           : { readOnlyHint: false, destructiveHint: false, idempotentHint: false },
       },
       async (args: Record<string, unknown>) => {
-        const handler = HANDLERS[tool.name];
-        // Scaffolding: each tool gets its handler in its own red/green cycle.
-        if (!handler) return fail(`${tool.name} is not implemented yet`);
         const reason = typeof args.reason === 'string' ? args.reason : null;
         try {
           return ok(
@@ -239,6 +238,7 @@ export function createServer(deps: ServerDeps): McpServer {
               const [settings] = await tx.query<Context['settings']>(
                 'select * from public.settings',
               );
+              if (!tool.read) await enforceWriteLimit(tx);
               return handler(args, { tx, settings, deps });
             }),
           );

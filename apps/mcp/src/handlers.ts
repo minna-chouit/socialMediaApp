@@ -149,6 +149,23 @@ async function applyPatch(tx: Tx, table: string, id: unknown, patch: Row, column
   return rows.length > 0;
 }
 
+export const WRITES_PER_HOUR = 60;
+
+/**
+ * Section 6.2 rule 4. Counts Claude's writes in the last hour from change_log: every write logs
+ * there, one tool call is one transaction (one now()), so distinct timestamps are tool calls.
+ * Stored in the database so it holds across serverless instances.
+ */
+export async function enforceWriteLimit(tx: Tx) {
+  const [{ writes }] = await tx.query<{ writes: number }>(
+    `select count(distinct at)::int as writes from public.change_log
+      where actor = 'claude' and at > now() - interval '1 hour'`,
+  );
+  if (writes >= WRITES_PER_HOUR) {
+    throw new ToolError(`Write limit reached: ${WRITES_PER_HOUR} writes per hour. Try again later.`);
+  }
+}
+
 /** Tool handlers by name; each runs inside one owner transaction (see createServer). */
 export const HANDLERS: Record<string, Handler> = {
   resolve_trigger: async ({ id, note, reason }, { tx, settings, deps }) => {
