@@ -213,6 +213,18 @@ These settle points the rules above leave open. Tests encode them.
 11. **Check-in due time:** 20:00 local on (local posting date + offset days).
 12. **Rule parameters** are code defaults until settings make them editable (FR-24, M6).
 
+### 4.7 Clarifications (agreed in M3)
+
+1. **Milestone due date:** 20:00 on the Friday that ends week N; week 1 is the planning week containing the first scheduled post. The MILESTONE reminder fires then.
+2. **Research refreshes** are seeded for the first year (weeks 13, 26, 39, 52).
+3. **TikTok reply reminders** are off unless `settings.replyRemindersTikTok` is true.
+4. **Per-post reminder overrides:** a post may switch off reminder codes and set its own reply window.
+5. **SHOT_LIST** counts non-archived posts going live in the current planning week at stage capture or earlier.
+6. **SCHEDULE** counts next week's approved-or-later variants that are neither posted nor `scheduledNatively`.
+7. **Owner-wide reminders** have no entity; their key is `code::date`. Check-in reminders use `variantId:dDAY` as the entity ID.
+8. **Window and key date** use the reminder's scheduled time; quiet hours are applied afterwards and are [start, end).
+9. **Notification text** (for example the ideas awaiting a verdict at BATCH_NIGHT) is built with push delivery in M7; core decides only when and whether a reminder is sent.
+
 ## 5. Data model
 
 Postgres (Supabase). Every table has `id uuid pk`, `owner_id uuid` (row-level security: owner_id = auth.uid()), `created_at` and `updated_at`. Timestamps are `timestamptz` in UTC; local time is applied in `@cadence/core`.
