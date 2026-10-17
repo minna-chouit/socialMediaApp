@@ -24,7 +24,7 @@ export interface Context {
 export class ToolError extends Error {}
 
 /** A text[] parameter as a Postgres array literal; works with both PGlite and postgres.js. */
-const textArray = (values: unknown) =>
+export const textArray = (values: unknown) =>
   `{${((values as string[] | undefined) ?? [])
     .map((v) => `"${v.replaceAll('\\', '\\\\').replaceAll('"', '\\"')}"`)
     .join(',')}}`;
@@ -55,7 +55,7 @@ async function logWrite(
 }
 
 // Enum arrays come back from the drivers as '{a,b}' text, so these cast topics to text[].
-const IDEA = 'id, text, source, tags, pillar, topics::text[] as topics, status, created_at';
+export const IDEA = 'id, text, source, tags, pillar, topics::text[] as topics, status, created_at';
 const POST = `id, title, pillar, topics::text[] as topics, status, go_live_at, notes, is_leftovers,
   idea_id, created_by, reminder_overrides, created_at`;
 
@@ -72,7 +72,11 @@ const dayRange = (from: unknown, to: unknown, timeZone: string) => [
 ];
 
 /** A post with its variants, linked media and change log (get_post, and the result of post writes). */
-async function readPost(tx: Tx, id: unknown, tz: string): Promise<Row & { variants: Row[] }> {
+export async function readPost(
+  tx: Tx,
+  id: unknown,
+  tz: string,
+): Promise<Row & { variants: Row[] }> {
   const [post] = await tx.query(`select ${POST} from public.posts where id = $1`, [id]);
   if (!post) throw new ToolError(`No post with id ${id}`);
   const variants = await tx.query(
@@ -100,7 +104,7 @@ async function readPost(tx: Tx, id: unknown, tz: string): Promise<Row & { varian
 }
 
 /** Balance warnings for the planning week a post goes live in, as Claude sees after a write. */
-async function weekWarnings(tx: Tx, goLiveAt: unknown, settings: Context['settings']) {
+export async function weekWarnings(tx: Tx, goLiveAt: unknown, settings: Context['settings']) {
   const week = planningWeek(Temporal.Instant.from(String(goLiveAt)), settings.timezone);
   return checkBalance(
     await loadPosts(tx),
@@ -114,7 +118,7 @@ type Columns = Record<
   string,
   { column: string; cast?: string; toDb?: (value: unknown) => unknown }
 >;
-const POST_PATCH: Columns = {
+export const POST_PATCH: Columns = {
   title: { column: 'title' },
   pillar: { column: 'pillar' },
   topics: { column: 'topics', cast: '::public.topic[]', toDb: textArray },
@@ -124,7 +128,7 @@ const POST_PATCH: Columns = {
   notes: { column: 'notes' },
 };
 
-const VARIANT_PATCH: Columns = {
+export const VARIANT_PATCH: Columns = {
   platform: { column: 'platform' },
   format: { column: 'format' },
   language: { column: 'language' },
@@ -135,7 +139,7 @@ const VARIANT_PATCH: Columns = {
 };
 
 /** Applies a validated patch; false when no row with that id is visible to the owner. */
-async function applyPatch(tx: Tx, table: string, id: unknown, patch: Row, columns: Columns) {
+export async function applyPatch(tx: Tx, table: string, id: unknown, patch: Row, columns: Columns) {
   const entries = Object.entries(patch).filter(([key]) => key in columns);
   if (!entries.length) throw new ToolError('The patch changes nothing');
   const sets = entries.map(

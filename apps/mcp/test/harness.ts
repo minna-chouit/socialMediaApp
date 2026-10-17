@@ -24,10 +24,10 @@ export async function freshDatabase() {
   return pg;
 }
 
-export function pgliteDb(pg: PGlite): Db {
+export function pgliteDb(pg: PGlite, role: 'cadence_mcp' | 'authenticated' = 'cadence_mcp'): Db {
   return (ownerId, reason, fn) =>
     pg.transaction(async (tx) => {
-      await tx.exec('set local role cadence_mcp');
+      await tx.exec(`set local role ${role}`);
       await tx.query("select set_config('request.jwt.claims', $1, true)", [
         JSON.stringify({ sub: ownerId }),
       ]);

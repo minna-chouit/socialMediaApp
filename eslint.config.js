@@ -8,6 +8,11 @@ export default defineConfig(
     rules: { '@typescript-eslint/no-unused-vars': ['error', { argsIgnorePattern: '^_' }] },
   },
   {
+    // Loose JSON results in assertions are fine in tests.
+    files: ['**/*.test.ts'],
+    rules: { '@typescript-eslint/no-explicit-any': 'off' },
+  },
+  {
     // NFR-8: core reads time only through the injected Clock.
     files: ['packages/core/**'],
     rules: {
