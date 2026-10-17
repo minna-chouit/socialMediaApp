@@ -30,29 +30,140 @@
           --err: #ef9a9a;
         }
       }
-      * { box-sizing: border-box; }
-      body { margin: 0; background: var(--bg); color: var(--ink); font: 16px/1.45 system-ui, sans-serif; }
-      header { position: sticky; top: 0; background: var(--bg); border-bottom: 1px solid var(--line); padding: 12px 16px 0; z-index: 1; }
-      h1 { margin: 0 0 8px; font-size: 20px; }
-      nav { display: flex; gap: 4px; }
-      nav button { flex: 1; border: 0; background: none; color: var(--muted); padding: 10px 0; font: inherit; border-bottom: 3px solid transparent; min-height: 44px; }
-      nav button[aria-selected='true'] { color: var(--ink); border-color: var(--accent); font-weight: 600; }
-      main { padding: 16px; max-width: 720px; margin: 0 auto; }
-      .card { background: var(--card); border: 1px solid var(--line); border-radius: 12px; padding: 14px; margin-bottom: 12px; }
-      .row { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
-      .muted { color: var(--muted); font-size: 14px; }
-      .pill { font-size: 12px; border: 1px solid var(--line); border-radius: 999px; padding: 2px 8px; }
-      .warning { color: var(--warn); font-size: 14px; }
-      .error { color: var(--err); font-size: 14px; }
-      button.act, input, select, textarea { font: inherit; min-height: 44px; border-radius: 10px; border: 1px solid var(--line); background: var(--card); color: var(--ink); padding: 8px 12px; }
-      button.act { cursor: pointer; }
-      button.primary { background: var(--accent); color: #fff; border-color: var(--accent); }
-      input, textarea, select { width: 100%; }
-      label { display: block; margin: 10px 0 4px; font-size: 14px; color: var(--muted); }
-      ul { margin: 6px 0 0; padding-left: 18px; }
-      #toast { position: fixed; left: 16px; right: 16px; bottom: 16px; padding: 12px 14px; border-radius: 10px; background: var(--ink); color: var(--bg); display: none; }
-      dialog { border: 1px solid var(--line); border-radius: 14px; background: var(--card); color: var(--ink); width: min(640px, calc(100% - 32px)); }
-      dialog::backdrop { background: rgb(0 0 0 / 0.4); }
+      * {
+        box-sizing: border-box;
+      }
+      body {
+        margin: 0;
+        background: var(--bg);
+        color: var(--ink);
+        font:
+          16px/1.45 system-ui,
+          sans-serif;
+      }
+      header {
+        position: sticky;
+        top: 0;
+        background: var(--bg);
+        border-bottom: 1px solid var(--line);
+        padding: 12px 16px 0;
+        z-index: 1;
+      }
+      h1 {
+        margin: 0 0 8px;
+        font-size: 20px;
+      }
+      nav {
+        display: flex;
+        gap: 4px;
+      }
+      nav button {
+        flex: 1;
+        border: 0;
+        background: none;
+        color: var(--muted);
+        padding: 10px 0;
+        font: inherit;
+        border-bottom: 3px solid transparent;
+        min-height: 44px;
+      }
+      nav button[aria-selected='true'] {
+        color: var(--ink);
+        border-color: var(--accent);
+        font-weight: 600;
+      }
+      main {
+        padding: 16px;
+        max-width: 720px;
+        margin: 0 auto;
+      }
+      .card {
+        background: var(--card);
+        border: 1px solid var(--line);
+        border-radius: 12px;
+        padding: 14px;
+        margin-bottom: 12px;
+      }
+      .row {
+        display: flex;
+        gap: 8px;
+        flex-wrap: wrap;
+        align-items: center;
+      }
+      .muted {
+        color: var(--muted);
+        font-size: 14px;
+      }
+      .pill {
+        font-size: 12px;
+        border: 1px solid var(--line);
+        border-radius: 999px;
+        padding: 2px 8px;
+      }
+      .warning {
+        color: var(--warn);
+        font-size: 14px;
+      }
+      .error {
+        color: var(--err);
+        font-size: 14px;
+      }
+      button.act,
+      input,
+      select,
+      textarea {
+        font: inherit;
+        min-height: 44px;
+        border-radius: 10px;
+        border: 1px solid var(--line);
+        background: var(--card);
+        color: var(--ink);
+        padding: 8px 12px;
+      }
+      button.act {
+        cursor: pointer;
+      }
+      button.primary {
+        background: var(--accent);
+        color: #fff;
+        border-color: var(--accent);
+      }
+      input,
+      textarea,
+      select {
+        width: 100%;
+      }
+      label {
+        display: block;
+        margin: 10px 0 4px;
+        font-size: 14px;
+        color: var(--muted);
+      }
+      ul {
+        margin: 6px 0 0;
+        padding-left: 18px;
+      }
+      #toast {
+        position: fixed;
+        left: 16px;
+        right: 16px;
+        bottom: 16px;
+        padding: 12px 14px;
+        border-radius: 10px;
+        background: var(--ink);
+        color: var(--bg);
+        display: none;
+      }
+      dialog {
+        border: 1px solid var(--line);
+        border-radius: 14px;
+        background: var(--card);
+        color: var(--ink);
+        width: min(640px, calc(100% - 32px));
+      }
+      dialog::backdrop {
+        background: rgb(0 0 0 / 0.4);
+      }
     </style>
   </head>
   <body>
@@ -76,10 +187,19 @@
 
       const esc = (s) => String(s ?? '').replace(/[&<>"']/g, (c) => `&#${c.charCodeAt(0)};`);
       const when = (iso) =>
-        iso ? new Date(iso).toLocaleString([], { weekday: 'short', day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' }) : '';
+        iso
+          ? new Date(iso).toLocaleString([], {
+              weekday: 'short',
+              day: 'numeric',
+              month: 'short',
+              hour: '2-digit',
+              minute: '2-digit',
+            })
+          : '';
       // A local datetime-local value for an ISO time with offset, and back.
       const toInput = (iso) => (iso ? iso.slice(0, 16) : '');
-      const fromInput = (value, iso) => (value ? `${value}:00${(iso || '').slice(19) || offset()}` : null);
+      const fromInput = (value, iso) =>
+        value ? `${value}:00${(iso || '').slice(19) || offset()}` : null;
       const offset = () => {
         const m = -new Date().getTimezoneOffset();
         return `${m < 0 ? '-' : '+'}${String(Math.floor(Math.abs(m) / 60)).padStart(2, '0')}:${String(Math.abs(m) % 60).padStart(2, '0')}`;
@@ -99,7 +219,8 @@
           headers: { 'content-type': 'application/json', 'x-cadence-key': KEY },
           body: JSON.stringify({ action, args }),
         });
-        if (response.status === 404) throw new Error('This link is not valid. Check the secret in the URL.');
+        if (response.status === 404)
+          throw new Error('This link is not valid. Check the secret in the URL.');
         const body = await response.json();
         if (!response.ok) throw new Error(body.error || 'Something went wrong');
         return body;
@@ -123,14 +244,17 @@
       const variants = (post) =>
         post.variants
           .map(
-            (v) => `<div class="row muted"><span class="pill">${esc(v.platform)} · ${esc(v.format)}</span>
+            (
+              v,
+            ) => `<div class="row muted"><span class="pill">${esc(v.platform)} · ${esc(v.format)}</span>
               ${v.hook ? `“${esc(v.hook)}”` : ''} ${v.postedAt ? `<span>posted ${esc(when(v.postedAt))}</span>` : ''}</div>`,
           )
           .join('');
 
       async function renderInbox() {
         const items = await api('inbox');
-        if (!items.length) return '<p class="muted">Nothing waiting. Proposals from Claude appear here.</p>';
+        if (!items.length)
+          return '<p class="muted">Nothing waiting. Proposals from Claude appear here.</p>';
         return items
           .map(
             ({ post, warnings: w }) => `<article class="card">
@@ -204,7 +328,9 @@
       async function render() {
         main.innerHTML = '<p class="muted">Loading…</p>';
         try {
-          main.innerHTML = await { inbox: renderInbox, week: renderWeek, ideas: renderIdeas }[tab]();
+          main.innerHTML = await { inbox: renderInbox, week: renderWeek, ideas: renderIdeas }[
+            tab
+          ]();
         } catch (e) {
           main.innerHTML = `<p class="error">${esc(e.message)}</p>`;
         }
@@ -247,7 +373,18 @@
               const value = (f) => fs.querySelector(`[data-f="${f}"]`).value;
               await api('update_variant', {
                 id: v.id,
-                patch: { hook: value('hook'), caption: value('caption'), ...(value('scheduledAt') ? { scheduledAt: fromInput(value('scheduledAt'), v.scheduledAt || post.goLiveAt) } : {}) },
+                patch: {
+                  hook: value('hook'),
+                  caption: value('caption'),
+                  ...(value('scheduledAt')
+                    ? {
+                        scheduledAt: fromInput(
+                          value('scheduledAt'),
+                          v.scheduledAt || post.goLiveAt,
+                        ),
+                      }
+                    : {}),
+                },
               });
             }
             toast('Saved');
@@ -262,7 +399,8 @@
         const button = e.target.closest('[data-tab]');
         if (!button) return;
         tab = button.dataset.tab;
-        for (const b of document.querySelectorAll('[data-tab]')) b.setAttribute('aria-selected', String(b === button));
+        for (const b of document.querySelectorAll('[data-tab]'))
+          b.setAttribute('aria-selected', String(b === button));
         render();
       });
 
@@ -271,7 +409,8 @@
         if (!b) return;
         if (b.dataset.approve) act('approve', { id: b.dataset.approve }, 'Approved');
         if (b.dataset.advance) act('advance', { id: b.dataset.advance }, 'Moved to the next stage');
-        if (b.dataset.posted) act('mark_posted', { variantId: b.dataset.posted }, 'Marked posted; check-ins created');
+        if (b.dataset.posted)
+          act('mark_posted', { variantId: b.dataset.posted }, 'Marked posted; check-ins created');
         if (b.dataset.edit) openEditor(b.dataset.edit).catch((err) => toast(err.message));
         if (b.dataset.week) {
           weekOffset += Number(b.dataset.week);
