@@ -1,5 +1,5 @@
 import { Temporal } from 'temporal-polyfill';
-import { checkBalance } from '@cadence/core';
+import { checkBalance, planningWeek } from '@cadence/core';
 import type { Tx } from './db';
 import { coreSettings, inputPost, loadPosts } from './domain';
 import { output } from './rows';
@@ -37,6 +37,21 @@ const dayRange = (from: unknown, to: unknown, timeZone: string) => [
 
 /** Tool handlers by name; each runs inside one owner transaction (see createServer). */
 export const HANDLERS: Record<string, Handler> = {
+  get_follower_history: async ({ platform, weeks }, { tx, settings, deps }) => {
+    const tz = settings.timezone;
+    const thisWeek = planningWeek(deps.clock.now(), tz).start.toZonedDateTimeISO(tz);
+    const firstWeek = thisWeek
+      .subtract({ weeks: Number(weeks ?? 12) - 1 })
+      .toPlainDate()
+      .toString();
+    return tx.query(
+      `select platform, week_start::text as "weekStart", count from public.follower_snapshots
+        where week_start >= $1::date and ($2::public.platform is null or platform = $2)
+        order by week_start, platform`,
+      [firstWeek, platform ?? null],
+    );
+  },
+
   get_checkins: async ({ from, to }, { tx, settings }) => {
     const rows = await tx.query(
       `select c.*, v.platform, p.id as post_id, p.title from public.checkins c

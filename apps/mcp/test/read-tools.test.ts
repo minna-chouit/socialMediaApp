@@ -284,3 +284,27 @@ describe('get_checkins', () => {
     expect(pending).toMatchObject({ dayOffset: 7, doneAt: null, views: null, reach: null });
   });
 });
+
+describe('get_follower_history', () => {
+  it('get_follower_history: weekly counts, default 12 weeks, platform filter', async () => {
+    const snapshot = (platform: string, week: string, count: number) =>
+      c.pg.query(
+        'insert into public.follower_snapshots (owner_id, platform, count, week_start) values ($1, $2, $3, $4)',
+        [OWNER, platform, count, week],
+      );
+    // The clock is in the week of 17 Oct; 12 weeks including it start on 1 Aug, so 18 Jul is week 14.
+    await snapshot('instagram', '2026-07-18', 90);
+    await snapshot('instagram', '2026-10-10', 118);
+    await snapshot('instagram', '2026-10-17', 120);
+    await snapshot('tiktok', '2026-10-17', 40);
+
+    expect(await call(c, 'get_follower_history', { platform: 'instagram' })).toEqual([
+      { platform: 'instagram', weekStart: '2026-10-10', count: 118 },
+      { platform: 'instagram', weekStart: '2026-10-17', count: 120 },
+    ]);
+    expect(await call(c, 'get_follower_history', {})).toHaveLength(3);
+    expect(
+      await call(c, 'get_follower_history', { platform: 'instagram', weeks: 14 }),
+    ).toHaveLength(3);
+  });
+});
