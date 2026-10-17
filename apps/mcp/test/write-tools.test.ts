@@ -110,3 +110,52 @@ describe('review_idea', () => {
     expect(result).toEqual({ error: `No idea with id ${ideaId}` });
   });
 });
+
+describe('propose_post', () => {
+  const proposal = {
+    title: 'Exam week POV',
+    pillar: 'student_life',
+    topics: [],
+    goLiveAt: '2026-10-27T19:00:00+01:00', // Tuesday of the week of 24 Oct
+    variants: [
+      { platform: 'instagram', format: 'reel', hook: 'Three exams, one week' },
+      { platform: 'tiktok', format: 'video', scheduledAt: '2026-10-27T21:00:00+01:00' },
+    ],
+    reason: 'Student_life is under target this month',
+  };
+
+  it('propose_post: saved as proposed whatever is sent, with variants and balance warnings', async () => {
+    const { id: ideaId } = await call(c, 'create_idea', { text: 'Exam week', reason: 'From chat' });
+    const result = await call(c, 'propose_post', { ...proposal, ideaId, status: 'approved' });
+    expect(result.post).toMatchObject({
+      title: 'Exam week POV',
+      status: 'proposed',
+      createdBy: 'claude',
+      ideaId,
+      goLiveAt: '2026-10-27T19:00:00+01:00',
+      variants: [
+        { platform: 'instagram', format: 'reel', hook: 'Three exams, one week' },
+        { platform: 'tiktok', format: 'video', scheduledAt: '2026-10-27T21:00:00+01:00' },
+      ],
+    });
+    expect(result.warnings).toContainEqual({
+      rule: 'R4',
+      severity: 'warning',
+      message: 'No linkedin post in the week of 2026-10-24',
+    });
+    expect((await call(c, 'list_ideas', {}))[0].status).toBe('promoted');
+    expect(await changeLog(result.post.id)).toEqual([
+      expect.objectContaining({ actor: 'claude', field: 'created', reason: proposal.reason }),
+    ]);
+  });
+
+  it('propose_post: a LinkedIn reel is rejected with a clear message', async () => {
+    const result = await call(c, 'propose_post', {
+      ...proposal,
+      pillar: 'work_lessons',
+      variants: [{ platform: 'linkedin', format: 'reel' }],
+    });
+    expect(result).toEqual({ error: 'linkedin does not support the reel format' });
+    expect(await call(c, 'get_calendar', { from: '2026-10-24', to: '2026-10-30' })).toEqual([]);
+  });
+});

@@ -1,5 +1,11 @@
 import { Temporal } from 'temporal-polyfill';
-import { checkBalance, metricsSummary, planningWeek, reviewIdea } from '@cadence/core';
+import {
+  checkBalance,
+  checkVariants,
+  metricsSummary,
+  planningWeek,
+  reviewIdea,
+} from '@cadence/core';
 import type { Tx } from './db';
 import { coreSettings, inputPost, loadCheckins, loadPosts } from './domain';
 import { output } from './rows';
@@ -65,8 +71,85 @@ const dayRange = (from: unknown, to: unknown, timeZone: string) => [
     .toString(),
 ];
 
+/** A post with its variants, linked media and change log (get_post, and the result of post writes). */
+async function readPost(tx: Tx, id: unknown, tz: string) {
+  const [post] = await tx.query(`select ${POST} from public.posts where id = $1`, [id]);
+  if (!post) throw new ToolError(`No post with id ${id}`);
+  const variants = await tx.query(
+    'select * from public.variants where post_id = $1 order by platform',
+    [id],
+  );
+  const media = await tx.query(
+    `select m.* from public.media m join public.post_media pm on pm.media_id = m.id
+      where pm.post_id = $1 order by m.taken_at nulls last, m.created_at`,
+    [id],
+  );
+  const changeLog = await tx.query(
+    `select actor, field, old_value, new_value, reason, at from public.change_log
+      where entity_id = $1 or entity_id = any($2::uuid[]) order by at, field`,
+    [id, `{${variants.map((v) => v.id).join(',')}}`],
+  );
+  return {
+    ...output(post, tz),
+    variants: variants.map((v) =>
+      output(v, tz, ['owner_id', 'created_at', 'updated_at', 'post_id']),
+    ),
+    media: media.map((m) => output(m, tz)),
+    changeLog: changeLog.map((row) => output(row, tz)),
+  };
+}
+
+/** Balance warnings for the planning week a post goes live in, as Claude sees after a write. */
+async function weekWarnings(tx: Tx, goLiveAt: unknown, settings: Context['settings']) {
+  const week = planningWeek(Temporal.Instant.from(String(goLiveAt)), settings.timezone);
+  return checkBalance(
+    await loadPosts(tx),
+    { from: week.start, to: week.end },
+    coreSettings(settings),
+  );
+}
+
 /** Tool handlers by name; each runs inside one owner transaction (see createServer). */
 export const HANDLERS: Record<string, Handler> = {
+  propose_post: async (args, { tx, settings }) => {
+    const variants = args.variants as Row[];
+    const problems = checkVariants(variants as Parameters<typeof checkVariants>[0]);
+    if (problems.length) throw new ToolError(problems.join('; '));
+    // The FR-1 trigger makes anything cadence_mcp inserts created_by claude and proposed.
+    const [{ id }] = await tx.query(
+      `insert into public.posts (title, pillar, topics, go_live_at, idea_id, is_leftovers, notes)
+       values ($1, $2, $3::public.topic[], $4, $5, $6, $7) returning id`,
+      [
+        args.title,
+        args.pillar,
+        textArray(args.topics),
+        args.goLiveAt,
+        args.ideaId ?? null,
+        Boolean(args.isLeftovers),
+        args.notes ?? null,
+      ],
+    );
+    for (const v of variants) {
+      await tx.query(
+        `insert into public.variants (post_id, platform, format, language, caption, hook, hashtags, scheduled_at)
+         values ($1, $2, $3, $4, $5, $6, $7::text[], $8)`,
+        [
+          id,
+          v.platform,
+          v.format,
+          v.language ?? 'en',
+          v.caption ?? null,
+          v.hook ?? null,
+          textArray(v.hashtags),
+          v.scheduledAt ?? null,
+        ],
+      );
+    }
+    const post = await readPost(tx, id, settings.timezone);
+    await logWrite(tx, { type: 'post', id }, 'created', { new: post }, args.reason);
+    return { post, warnings: await weekWarnings(tx, args.goLiveAt, settings) };
+  },
+
   review_idea: async ({ ideaId, scores, notes, alternatives }, { tx, settings }) => {
     const [idea] = await tx.query('select id from public.ideas where id = $1', [ideaId]);
     if (!idea) throw new ToolError(`No idea with id ${ideaId}`);
@@ -212,33 +295,7 @@ export const HANDLERS: Record<string, Handler> = {
     );
   },
 
-  get_post: async ({ id }, { tx, settings }) => {
-    const tz = settings.timezone;
-    const [post] = await tx.query(`select ${POST} from public.posts where id = $1`, [id]);
-    if (!post) throw new ToolError(`No post with id ${id}`);
-    const variants = await tx.query(
-      'select * from public.variants where post_id = $1 order by platform',
-      [id],
-    );
-    const media = await tx.query(
-      `select m.* from public.media m join public.post_media pm on pm.media_id = m.id
-        where pm.post_id = $1 order by m.taken_at nulls last, m.created_at`,
-      [id],
-    );
-    const changeLog = await tx.query(
-      `select actor, field, old_value, new_value, reason, at from public.change_log
-        where entity_id = $1 or entity_id = any($2::uuid[]) order by at, field`,
-      [id, `{${variants.map((v) => v.id).join(',')}}`],
-    );
-    return {
-      ...output(post, tz),
-      variants: variants.map((v) =>
-        output(v, tz, ['owner_id', 'created_at', 'updated_at', 'post_id']),
-      ),
-      media: media.map((m) => output(m, tz)),
-      changeLog: changeLog.map((row) => output(row, tz)),
-    };
-  },
+  get_post: async ({ id }, { tx, settings }) => readPost(tx, id, settings.timezone),
 
   get_calendar: async ({ from, to }, { tx, settings }) => {
     const rows = await tx.query(
