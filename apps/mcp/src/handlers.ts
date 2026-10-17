@@ -17,6 +17,12 @@ export interface Context {
 /** An error Claude should see as the tool result (not found, rejected input, rate limit). */
 export class ToolError extends Error {}
 
+/** A text[] parameter as a Postgres array literal; works with both PGlite and postgres.js. */
+const textArray = (values: unknown) =>
+  `{${((values as string[] | undefined) ?? [])
+    .map((v) => `"${v.replaceAll('\\', '\\\\').replaceAll('"', '\\"')}"`)
+    .join(',')}}`;
+
 type Handler = (args: Record<string, unknown>, ctx: Context) => Promise<unknown>;
 
 /** [start of `from`, start of the day after `to`) in the owner's timezone, as ISO instants. */
@@ -31,6 +37,22 @@ const dayRange = (from: unknown, to: unknown, timeZone: string) => [
 
 /** Tool handlers by name; each runs inside one owner transaction (see createServer). */
 export const HANDLERS: Record<string, Handler> = {
+  list_media: async ({ tags, unusedOnly, limit }, { tx, settings, deps }) => {
+    const rows = await tx.query(
+      `select m.* from public.media m
+        where m.tags @> $1::text[]
+          and (not $2 or not exists (select 1 from public.post_media pm where pm.media_id = m.id))
+        order by m.taken_at desc nulls last, m.created_at desc limit $3`,
+      [textArray(tags), Boolean(unusedOnly), limit ?? 50],
+    );
+    return Promise.all(
+      rows.map(async (row) => ({
+        ...output(row, settings.timezone),
+        thumbnailUrl: await deps.signUrl(String(row.storage_path)),
+      })),
+    );
+  },
+
   list_ideas: async ({ status, limit }, { tx, settings }) => {
     const rows = await tx.query(
       `select i.*, (select to_jsonb(v) - 'owner_id' - 'updated_at' - 'idea_id' from public.idea_verdicts v

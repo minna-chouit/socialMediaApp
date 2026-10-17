@@ -44,7 +44,8 @@ export async function connect() {
   const pg = await freshDatabase();
   let now = NOW;
   const clock = { now: () => now, set: (at: Temporal.Instant) => void (now = at) };
-  const server = createServer({ db: pgliteDb(pg), ownerId: OWNER, clock });
+  const signUrl = async (path: string) => `https://storage.test/sign/${path}?expiresIn=600`;
+  const server = createServer({ db: pgliteDb(pg), ownerId: OWNER, clock, signUrl });
   const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
   await server.connect(serverTransport);
   const client = new Client({ name: 'contract-test', version: '1.0.0' });

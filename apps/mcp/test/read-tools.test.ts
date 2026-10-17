@@ -188,3 +188,35 @@ describe('list_ideas', () => {
     ]);
   });
 });
+
+describe('list_media', () => {
+  it('list_media: tags filter, unusedOnly and short-lived signed thumbnail URLs', async () => {
+    const media = async (path: string, tags: string, takenAt: string) =>
+      (
+        await c.pg.query<{ id: string }>(
+          `insert into public.media (owner_id, storage_path, kind, tags, size_bytes, taken_at)
+           values ($1, $2, 'photo', $3, 1000, $4) returning id`,
+          [OWNER, path, tags, takenAt],
+        )
+      ).rows[0].id;
+    const used = await media('o/campus-day.jpg', '{campus}', '2026-10-10T10:00:00Z');
+    const unused = await media('o/campus-night.jpg', '{campus,night}', '2026-10-11T20:00:00Z');
+    await media('o/gym.jpg', '{gym}', '2026-10-12T08:00:00Z');
+    const { postId } = await seedPost(c.pg, { title: 'Campus', goLiveAt: '2026-10-20T17:00:00Z' });
+    await c.pg.query(
+      'insert into public.post_media (owner_id, post_id, media_id) values ($1, $2, $3)',
+      [OWNER, postId, used],
+    );
+
+    const campus = await call(c, 'list_media', { tags: ['campus'] });
+    expect(campus.map((m: { id: string }) => m.id)).toEqual([unused, used]);
+    expect(campus[0]).toMatchObject({
+      storagePath: 'o/campus-night.jpg',
+      tags: ['campus', 'night'],
+      takenAt: '2026-10-11T21:00:00+01:00',
+      thumbnailUrl: 'https://storage.test/sign/o/campus-night.jpg?expiresIn=600',
+    });
+    const unusedCampus = await call(c, 'list_media', { tags: ['campus'], unusedOnly: true });
+    expect(unusedCampus.map((m: { id: string }) => m.id)).toEqual([unused]);
+  });
+});
