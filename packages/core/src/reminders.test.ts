@@ -272,3 +272,40 @@ describe('POST_NOW', () => {
     expect(shouldSend(reminder, EMPTY, S)).toBe(false); // variant no longer exists
   });
 });
+
+describe('FR-16: reply timer reminders', () => {
+  const tiktok = post({ variants: [{ platform: 'tiktok', format: 'video' }] });
+  const replies = (posts: Post[], settings = S) =>
+    remind({ posts }, settings).filter((r) => r.code.startsWith('REPLY_'));
+
+  it('FR-16: REPLY_START at go-live and REPLY_END after the reply window (default 15 min), both urgent', () => {
+    const p = post({ variants: [{}, { platform: 'linkedin', format: 'text' }] });
+    expect(replies([p]).map((r) => [r.code, r.entityId, r.at.toString(), r.urgent])).toEqual([
+      ['REPLY_START', p.variants[0].id, '2026-10-19T10:00:00Z', true],
+      ['REPLY_END', p.variants[0].id, '2026-10-19T10:15:00Z', true],
+      ['REPLY_START', p.variants[1].id, '2026-10-19T10:00:00Z', true],
+      ['REPLY_END', p.variants[1].id, '2026-10-19T10:15:00Z', true],
+    ]);
+    const longer = replies([post()], { ...S, replyWindowMinutes: 30 });
+    expect(longer[1].at.toString()).toBe('2026-10-19T10:30:00Z');
+  });
+
+  it('FR-16: TikTok gets no reply reminders unless settings turn them on', () => {
+    expect(replies([tiktok])).toEqual([]);
+    expect(replies([tiktok], { ...S, replyRemindersTikTok: true })).toHaveLength(2);
+  });
+});
+
+describe('REPLY_START and REPLY_END', () => {
+  const posted = post({ variants: [{ postedAt: at('2026-10-19T10:00:00Z') }] });
+
+  it('REPLY_START: cancelled unless the variant is posted', () => {
+    expect(sendsFor('REPLY_START', [posted])).toBe(true);
+    expect(sendsFor('REPLY_START', [post()])).toBe(false);
+  });
+
+  it('REPLY_END: cancelled unless the variant is posted', () => {
+    expect(sendsFor('REPLY_END', [posted])).toBe(true);
+    expect(sendsFor('REPLY_END', [post()])).toBe(false);
+  });
+});

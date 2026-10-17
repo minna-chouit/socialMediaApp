@@ -119,18 +119,31 @@ function weekly(dates: Temporal.PlainDate[], settings: Settings): Spec[] {
 }
 
 // Reminders tied to each approved-or-later variant.
-function perVariant(data: ReminderData): Spec[] {
+function perVariant(data: ReminderData, settings: Settings): Spec[] {
   return data.posts
     .filter((post) => isApprovedOrLater(post.status))
     .flatMap((post) =>
-      post.variants.map((variant): Spec => ({
-        code: 'POST_NOW',
-        entityType: 'variant',
-        entityId: variant.id,
-        at: goesLiveAt(post, variant),
-        urgent: true,
-        mirror: false,
-      })),
+      post.variants.flatMap((variant): Spec[] => {
+        const live = goesLiveAt(post, variant);
+        const spec = (code: ReminderCode, at: Temporal.Instant): Spec => ({
+          code,
+          entityType: 'variant',
+          entityId: variant.id,
+          at,
+          urgent: true,
+          mirror: false,
+        });
+        const replies = variant.platform !== 'tiktok' || settings.replyRemindersTikTok;
+        return [
+          spec('POST_NOW', live),
+          ...(replies
+            ? [
+                spec('REPLY_START', live),
+                spec('REPLY_END', live.add({ minutes: settings.replyWindowMinutes })),
+              ]
+            : []),
+        ];
+      }),
     );
 }
 
@@ -144,7 +157,7 @@ export function generateReminders(
   window: Window,
 ): Reminder[] {
   const timeZone = settings.timeZone;
-  return [...weekly(localDates(window, timeZone), settings), ...perVariant(data)]
+  return [...weekly(localDates(window, timeZone), settings), ...perVariant(data, settings)]
     .filter((spec) => isWithin(spec.at, window.from, window.to))
     .map((spec) => ({
       ...spec,
@@ -180,6 +193,9 @@ export function shouldSend(reminder: Reminder, data: ReminderData, settings: Set
       const variant = findVariant(data, reminder.entityId);
       return !!variant && !variant.postedAt && !variant.scheduledNatively;
     }
+    case 'REPLY_START':
+    case 'REPLY_END':
+      return !!findVariant(data, reminder.entityId)?.postedAt;
     default:
       return true;
   }
