@@ -170,9 +170,11 @@
     <header>
       <h1>Cadence</h1>
       <nav role="tablist">
-        <button role="tab" data-tab="inbox" aria-selected="true">Inbox</button>
+        <button role="tab" data-tab="today" aria-selected="true">Today</button>
+        <button role="tab" data-tab="inbox" aria-selected="false">Inbox</button>
         <button role="tab" data-tab="week" aria-selected="false">Week</button>
         <button role="tab" data-tab="ideas" aria-selected="false">Ideas</button>
+        <button role="tab" data-tab="stats" aria-selected="false">Stats</button>
       </nav>
     </header>
     <main id="main" aria-live="polite"></main>
@@ -182,7 +184,7 @@
       // The secret is the last path segment (/app/<secret>); it is sent as a header, never in a query.
       const KEY = decodeURIComponent(location.pathname.split('/').filter(Boolean).pop() || '');
       const main = document.getElementById('main');
-      let tab = 'inbox';
+      let tab = 'today';
       let weekOffset = 0;
 
       const esc = (s) => String(s ?? '').replace(/[&<>"']/g, (c) => `&#${c.charCodeAt(0)};`);
@@ -325,12 +327,116 @@
             .join('')}`;
       }
 
+      const REMINDER_TEXT = {
+        SHOT_LIST: 'Make the shot list for this week',
+        WEEKLY_REPORT: 'Weekly report: log follower counts, then send the report to Claude',
+        BATCH_NIGHT: 'Batch night with Claude: plan, judge ideas, write captions',
+        SCHEDULE: 'Schedule next week’s approved posts in each app',
+        POST_NOW: 'Post now',
+        REPLY_START: 'Reply window starts: answer comments',
+        REPLY_END: 'Reply window ends',
+        CHECKIN: 'Log check-in metrics',
+        MISSED: 'Missed yesterday: post it or swap in a leftovers post',
+        LI_CAPTURE: 'Capture one piece of real work for LinkedIn',
+        LI_FALLBACK: 'No LinkedIn capture yet: write a reflection post instead',
+        MILESTONE: 'Milestone review',
+        MONTHLY_REVIEW: 'Monthly review (about an hour)',
+        TRIGGER: 'Strategy trigger fired: review with Claude',
+      };
+      const time = (iso) =>
+        new Date(iso).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+
+      async function renderToday() {
+        const reminders = await api('today');
+        if (!reminders.length) return '<p class="muted">Nothing left for today.</p>';
+        return reminders
+          .map(
+            (r) => `<article class="card row">
+              <strong style="min-width:56px">${esc(time(r.at))}</strong>
+              <span>${esc(REMINDER_TEXT[r.code] || r.code)}${r.about ? ` · <span class="muted">${esc(r.about)}</span>` : ''}</span>
+              ${r.urgent ? '<span class="pill">now</span>' : ''}
+            </article>`,
+          )
+          .join('');
+      }
+
+      const METRIC_FIELDS = [
+        'views',
+        'reach',
+        'likes',
+        'comments',
+        'saves',
+        'shares',
+        'follows',
+        'avgWatchSeconds',
+      ];
+      const METRIC_LABEL = { avgWatchSeconds: 'avg watch (s)' };
+
+      async function renderStats() {
+        const [checkins, followers, report] = await Promise.all([
+          api('checkins'),
+          api('followers'),
+          api('report'),
+        ]);
+        const r = report.live;
+        const pct = (rate) => (rate === null ? '–' : `${Math.round(rate * 100)}%`);
+        const latest = {};
+        for (const h of followers.history) latest[h.platform] = h.count;
+        return `<section class="card">
+            <h2 style="margin:0 0 8px;font-size:18px">Check-ins</h2>
+            ${checkins.length ? '' : '<p class="muted">No check-ins due.</p>'}
+            ${checkins
+              .map(
+                (c) => `<form class="card" data-checkin="${c.id}">
+                  <div class="row"><strong>${esc(c.title)}</strong><span class="pill">${esc(c.platform)} · day ${esc(c.dayOffset)}</span>
+                  ${c.overdue ? '<span class="error">overdue</span>' : `<span class="muted">due ${esc(when(c.dueAt))}</span>`}</div>
+                  <div class="row" style="margin-top:8px">${METRIC_FIELDS.map(
+                    (f) =>
+                      `<label style="flex:1 1 30%;margin:0">${esc(METRIC_LABEL[f] || f)}<input name="${f}" inputmode="numeric" pattern="[0-9]*" /></label>`,
+                  ).join('')}</div>
+                  <p class="muted">Leave a field empty if the app does not show it.</p>
+                  <button class="act primary" type="submit">Save check-in</button>
+                </form>`,
+              )
+              .join('')}
+          </section>
+          <section class="card">
+            <h2 style="margin:0 0 8px;font-size:18px">Followers · week of ${esc(followers.weekStart)}</h2>
+            <form id="followers-form" class="row">
+              <select name="platform" aria-label="Platform">${['instagram', 'tiktok', 'linkedin'].map((p) => `<option ${followers.missing[0] === p ? 'selected' : ''}>${p}</option>`).join('')}</select>
+              <input name="count" inputmode="numeric" pattern="[0-9]*" placeholder="Followers" aria-label="Follower count" required style="flex:1" />
+              <button class="act primary" type="submit">Save</button>
+            </form>
+            <p class="muted">${followers.missing.length ? `Still to log this week: ${esc(followers.missing.join(', '))}` : 'All logged this week.'}</p>
+            <p>${
+              Object.entries(latest)
+                .map(([p, n]) => `<span class="pill">${esc(p)} ${esc(n)}</span>`)
+                .join(' ') || '<span class="muted">No counts yet.</span>'
+            }</p>
+          </section>
+          <section class="card">
+            <h2 style="margin:0 0 8px;font-size:18px">This week · ${esc(r.weekStart)}</h2>
+            <p>Done ${esc(r.total.done)} of ${esc(r.total.planned)} planned (${pct(r.total.completionRate)})</p>
+            <p class="muted">${Object.entries(r.platforms)
+              .map(([p, s]) => `${esc(p)} ${esc(s.done)}/${esc(s.planned)}`)
+              .join(' · ')}</p>
+            <p class="muted">Check-ins done ${esc(r.checkins.done)}, overdue ${esc(r.checkins.overdue)} · LinkedIn captured: ${r.linkedinCaptured ? 'yes' : 'no'}</p>
+            ${r.missed.length ? `<p class="warning">Missed: ${r.missed.map((m) => esc(`${m.title} (${m.platform})`)).join(', ')}</p>` : ''}
+            <button class="act primary" data-send-report="1">Send this week’s report to Claude</button>
+            ${report.sent.length ? `<p class="muted">Sent: ${report.sent.map((s) => esc(s.weekStart)).join(', ')}</p>` : ''}
+          </section>`;
+      }
+
       async function render() {
         main.innerHTML = '<p class="muted">Loading…</p>';
         try {
-          main.innerHTML = await { inbox: renderInbox, week: renderWeek, ideas: renderIdeas }[
-            tab
-          ]();
+          main.innerHTML = await {
+            today: renderToday,
+            inbox: renderInbox,
+            week: renderWeek,
+            ideas: renderIdeas,
+            stats: renderStats,
+          }[tab]();
         } catch (e) {
           main.innerHTML = `<p class="error">${esc(e.message)}</p>`;
         }
@@ -423,11 +529,24 @@
       });
 
       main.addEventListener('submit', (e) => {
-        if (e.target.id !== 'new-idea') return;
+        const form = e.target;
         e.preventDefault();
-        const text = document.getElementById('idea-text').value;
-        const source = matchMedia('(pointer: coarse)').matches ? 'phone' : 'pc';
-        act('add_idea', { text, source }, 'Idea added');
+        if (form.id === 'new-idea') {
+          const text = document.getElementById('idea-text').value;
+          const source = matchMedia('(pointer: coarse)').matches ? 'phone' : 'pc';
+          act('add_idea', { text, source }, 'Idea added');
+        } else if (form.dataset.checkin) {
+          const metrics = Object.fromEntries(new FormData(form));
+          act('log_checkin', { id: form.dataset.checkin, metrics }, 'Check-in saved');
+        } else if (form.id === 'followers-form') {
+          const data = Object.fromEntries(new FormData(form));
+          act('log_followers', { platform: data.platform, count: data.count }, 'Followers saved');
+        }
+      });
+
+      main.addEventListener('click', (e) => {
+        if (e.target.closest('[data-send-report]'))
+          act('send_report', {}, 'Report sent: Claude can read it now');
       });
 
       render();

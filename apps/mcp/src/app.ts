@@ -1,11 +1,32 @@
 // The owner's web app API (FR-6, FR-7, FR-9 basics): one POST endpoint taking { action, args }.
 // Runs as the owner (role authenticated), so change_log records actor = owner and stage moves are
 // allowed, within core's canMove rules.
-import { canMove, checkBalance, markPosted, planningWeek, STAGES, type Stage } from '@cadence/core';
+import {
+  canMove,
+  checkBalance,
+  generateReminders,
+  markPosted,
+  METRICS,
+  planningWeek,
+  PLATFORMS,
+  seedMilestones,
+  shouldSend,
+  STAGES,
+  weeklyReport,
+  type Stage,
+} from '@cadence/core';
 import { timingSafeEqual } from 'node:crypto';
 import type { IncomingMessage, ServerResponse } from 'node:http';
 import { Temporal } from 'temporal-polyfill';
-import { coreSettings, loadPosts } from './domain';
+import {
+  coreSettings,
+  loadCaptureItems,
+  loadCheckins,
+  loadFollowerSnapshots,
+  loadMilestones,
+  loadPosts,
+  loadTriggers,
+} from './domain';
 import {
   applyPatch,
   HANDLERS,
@@ -35,7 +56,181 @@ async function setStage(ctx: Context, id: unknown, to: Stage, reason?: unknown) 
   return readPost(ctx.tx, id, ctx.settings.timezone);
 }
 
+const iso = (at: Temporal.Instant, tz: string) =>
+  at.toZonedDateTimeISO(tz).toString({ timeZoneName: 'never' });
+
+// FR-21: the first approval seeds the milestones, counted from the earliest approved post.
+async function seedMilestonesOnce(ctx: Context) {
+  const [{ n }] = await ctx.tx.query<{ n: number }>(
+    'select count(*)::int as n from public.milestones',
+  );
+  if (n > 0) return;
+  const [first] = await ctx.tx.query<{ at: string | null }>(
+    `select to_json(min(go_live_at)) #>> '{}' as at from public.posts
+      where status not in ('idea', 'proposed', 'archived')`,
+  );
+  if (!first?.at) return;
+  const firstPostAt = Temporal.Instant.from(first.at);
+  for (const m of seedMilestones(firstPostAt, coreSettings(ctx.settings))) {
+    await ctx.tx.query(
+      'insert into public.milestones (kind, week, title, checks, due_at) values ($1, $2, $3, $4::text[], $5)',
+      [
+        m.kind,
+        m.week,
+        m.title,
+        `{${m.checks.map((c) => JSON.stringify(c)).join(',')}}`,
+        m.dueAt.toString(),
+      ],
+    );
+  }
+  await ctx.tx.query('update public.settings set first_post_at = $1', [firstPostAt.toString()]);
+}
+
+async function reportData(ctx: Context) {
+  return {
+    posts: await loadPosts(ctx.tx),
+    checkins: await loadCheckins(ctx.tx),
+    captureItems: await loadCaptureItems(ctx.tx),
+    followerSnapshots: await loadFollowerSnapshots(ctx.tx),
+  };
+}
+
+const weekStartOf = (ctx: Context) => {
+  const tz = ctx.settings.timezone;
+  return planningWeek(ctx.deps.clock.now(), tz)
+    .start.toZonedDateTimeISO(tz)
+    .toPlainDate()
+    .toString();
+};
+
 export const APP_ACTIONS: Record<string, Action> = {
+  // Reminders still due today (section 4.2), shown in the app instead of push for now.
+  today: async (_args, ctx) => {
+    const tz = ctx.settings.timezone;
+    const settings = coreSettings(ctx.settings);
+    const day = ctx.deps.clock.now().toZonedDateTimeISO(tz).toPlainDate();
+    const window = {
+      from: day.toZonedDateTime(tz).toInstant(),
+      to: day.add({ days: 1 }).toZonedDateTime(tz).toInstant(),
+    };
+    const data = {
+      posts: await loadPosts(ctx.tx),
+      checkins: await loadCheckins(ctx.tx),
+      captureItems: await loadCaptureItems(ctx.tx),
+      milestones: await loadMilestones(ctx.tx),
+      triggers: await loadTriggers(ctx.tx),
+    };
+    const variantTitle = new Map(
+      data.posts.flatMap((p) =>
+        p.variants.map((v) => [v.id, `${p.title} (${v.platform})`] as const),
+      ),
+    );
+    const about = (entityType: string | null, entityId: string | null) => {
+      if (entityType === 'variant') return variantTitle.get(String(entityId)) ?? null;
+      if (entityType === 'checkin') {
+        const [variantId, offset] = String(entityId).split(':d');
+        return `${variantTitle.get(variantId) ?? 'post'}, day ${offset}`;
+      }
+      if (entityType === 'milestone')
+        return data.milestones.find((m) => m.id === entityId)?.title ?? null;
+      if (entityType === 'trigger')
+        return data.triggers.find((t) => t.id === entityId)?.rule ?? null;
+      return null;
+    };
+    return generateReminders(data, settings, window)
+      .filter((r) => shouldSend(r, data, settings))
+      .sort((a, b) => Temporal.Instant.compare(a.sendAt, b.sendAt))
+      .map((r) => ({
+        code: r.code,
+        at: iso(r.sendAt, tz),
+        urgent: r.urgent,
+        about: about(r.entityType, r.entityId),
+      }));
+  },
+
+  checkins: async (_args, ctx) => {
+    const rows = await ctx.tx.query(
+      `select c.*, v.platform, v.format, p.title, c.due_at + interval '2 days' <= $1::timestamptz as overdue
+         from public.checkins c join public.variants v on v.id = c.variant_id join public.posts p on p.id = v.post_id
+        where c.done_at is null and c.due_at <= $1::timestamptz + interval '1 day'
+        order by c.due_at`,
+      [ctx.deps.clock.now().toString()],
+    );
+    return rows.map((row) => output(row, ctx.settings.timezone));
+  },
+
+  log_checkin: async ({ id, metrics }, ctx) => {
+    const values = (metrics ?? {}) as Record<string, unknown>;
+    const columns = [...METRICS, 'avg_watch_seconds'];
+    // Missing fields are stored as null, never zero (section 4.4).
+    const toNumber = (v: unknown) =>
+      v === '' || v === null || v === undefined ? null : Math.round(Number(v));
+    const params = columns.map((c) =>
+      toNumber(values[c === 'avg_watch_seconds' ? 'avgWatchSeconds' : c]),
+    );
+    if (params.some((p) => p !== null && (Number.isNaN(p) || p < 0))) {
+      throw new ToolError('Metrics must be whole numbers, 0 or more');
+    }
+    const sets = columns.map((c, i) => `${c} = $${i + 2}`).join(', ');
+    const rows = await ctx.tx.query(
+      `update public.checkins set ${sets}, done_at = $${columns.length + 2} where id = $1 returning id`,
+      [id, ...params, ctx.deps.clock.now().toString()],
+    );
+    if (!rows.length) throw new ToolError(`No check-in with id ${id}`);
+    return { ok: true };
+  },
+
+  followers: async (_args, ctx) => {
+    const weekStart = weekStartOf(ctx);
+    const history = (await HANDLERS.get_follower_history({ weeks: 12 }, ctx)) as {
+      platform: string;
+      weekStart: string;
+      count: number;
+    }[];
+    const logged = new Set(history.filter((h) => h.weekStart === weekStart).map((h) => h.platform));
+    return { weekStart, missing: PLATFORMS.filter((p) => !logged.has(p)), history };
+  },
+
+  log_followers: async ({ platform, count }, ctx) => {
+    if (!PLATFORMS.includes(platform as never)) throw new ToolError('Pick a platform');
+    const n = Number(count);
+    if (!Number.isInteger(n) || n < 0)
+      throw new ToolError('Follower count must be a whole number, 0 or more');
+    await ctx.tx.query(
+      `insert into public.follower_snapshots (platform, count, week_start) values ($1, $2, $3)
+       on conflict (owner_id, platform, week_start) do update set count = excluded.count, taken_at = now()`,
+      [platform, n, weekStartOf(ctx)],
+    );
+    return { ok: true };
+  },
+
+  // FR-17: this week's report, computed live; plus the ones already sent to Claude.
+  report: async (_args, ctx) => {
+    const live = weeklyReport(
+      await reportData(ctx),
+      coreSettings(ctx.settings),
+      ctx.deps.clock.now(),
+    );
+    const sent = await ctx.tx.query(
+      `select week_start::text, ready_for_claude_at from public.weekly_reports order by week_start desc limit 8`,
+    );
+    return { live, sent: sent.map((row) => output(row, ctx.settings.timezone)) };
+  },
+
+  // FR-18: save this week's report (immutable) and mark it ready for Claude.
+  send_report: async (_args, ctx) => {
+    const now = ctx.deps.clock.now();
+    const payload = weeklyReport(await reportData(ctx), coreSettings(ctx.settings), now);
+    const [saved] = await ctx.tx.query(
+      `insert into public.weekly_reports (week_start, payload, generated_at, ready_for_claude_at)
+       values ($1, $2, $3, $3)
+       on conflict (owner_id, week_start) do update set ready_for_claude_at = excluded.ready_for_claude_at
+       returning week_start::text, ready_for_claude_at`,
+      [payload.weekStart, JSON.stringify(payload), now.toString()],
+    );
+    return output(saved, ctx.settings.timezone);
+  },
+
   inbox: async (_args, ctx) => {
     const ids = await ctx.tx.query<{ id: string }>(
       "select id from public.posts where status = 'proposed' order by go_live_at",
@@ -76,7 +271,11 @@ export const APP_ACTIONS: Record<string, Action> = {
 
   post: async ({ id }, ctx) => readPost(ctx.tx, id, ctx.settings.timezone),
 
-  approve: async ({ id }, ctx) => setStage(ctx, id, 'approved'),
+  approve: async ({ id }, ctx) => {
+    const post = await setStage(ctx, id, 'approved');
+    await seedMilestonesOnce(ctx);
+    return post;
+  },
 
   reject: async ({ id, reason }, ctx) => {
     if (!String(reason ?? '').trim()) throw new ToolError('Say why you are rejecting it');

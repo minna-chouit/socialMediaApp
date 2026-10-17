@@ -134,3 +134,70 @@ describe('owner web app', () => {
     await new Promise<void>((resolve) => http.close(() => resolve()));
   });
 });
+
+describe('owner web app: today, check-ins, followers, report', () => {
+  it('FR-13: today lists the reminders still due, with what they are about', async () => {
+    await seedPost(pg, { title: 'Wednesday reel', goLiveAt: '2026-10-21T17:00:00Z' }); // today 18:00 local
+    const today = await app('today');
+    expect(today.map((r: any) => [r.code, r.at, r.about])).toEqual([
+      ['POST_NOW', '2026-10-21T18:00:00+01:00', 'Wednesday reel (instagram)'],
+    ]);
+  });
+
+  it('FR-21: approving the first post seeds the milestones', async () => {
+    const { postId } = await seedPost(pg, {
+      title: 'First',
+      status: 'proposed',
+      goLiveAt: '2026-10-21T17:00:00Z',
+    });
+    await app('approve', { id: postId });
+    const { rows } = await pg.query<{ kind: string; week: number }>(
+      'select kind, week from public.milestones order by due_at',
+    );
+    expect(rows.map((r) => r.week)).toEqual([1, 2, 4, 6, 10, 13, 26, 39, 52]);
+    const { rows: settings } = await pg.query<{ set: boolean }>(
+      'select first_post_at is not null as set from public.settings',
+    );
+    expect(settings[0].set).toBe(true);
+  });
+
+  it('FR-19: logging a check-in saves metrics, keeps blanks null and marks it done', async () => {
+    const { variantIds } = await seedPost(pg, { title: 'Live', goLiveAt: '2026-10-18T10:00:00Z' });
+    await app('mark_posted', { variantId: variantIds[0] });
+    const { rows } = await pg.query<{ id: string }>(
+      'select id from public.checkins where day_offset = 3',
+    );
+    await app('log_checkin', { id: rows[0].id, metrics: { views: 1200, reach: '', saves: '14' } });
+    const { rows: saved } = await pg.query(
+      'select views, reach, saves, done_at is not null as done from public.checkins where id = $1',
+      [rows[0].id],
+    );
+    expect(saved[0]).toEqual({ views: 1200, reach: null, saves: 14, done: true });
+    await expect(app('log_checkin', { id: rows[0].id, metrics: { views: -3 } })).rejects.toThrow(
+      '0 or more',
+    );
+  });
+
+  it('FR-20: follower counts are logged once per platform per week', async () => {
+    await app('log_followers', { platform: 'instagram', count: 120 });
+    await app('log_followers', { platform: 'instagram', count: 125 });
+    const followers = await app('followers');
+    expect(followers.weekStart).toBe('2026-10-17');
+    expect(followers.missing).toEqual(['tiktok', 'linkedin']);
+    expect(followers.history).toEqual([
+      { platform: 'instagram', weekStart: '2026-10-17', count: 125 },
+    ]);
+  });
+
+  it('FR-18: sending the report saves it and marks it ready for Claude', async () => {
+    await seedPost(pg, { title: 'Monday', goLiveAt: '2026-10-19T17:00:00Z' });
+    const { live } = await app('report');
+    expect(live).toMatchObject({ weekStart: '2026-10-17', total: { planned: 1, done: 0 } });
+    expect(await app('send_report')).toMatchObject({
+      weekStart: '2026-10-17',
+      readyForClaudeAt: '2026-10-21T12:00:00+01:00',
+    });
+    await app('send_report'); // again: only readiness changes, the payload stays immutable
+    expect((await app('report')).sent).toHaveLength(1);
+  });
+});
