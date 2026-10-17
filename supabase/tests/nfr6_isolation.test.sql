@@ -54,6 +54,8 @@ begin
   end loop;
 end $$;
 grant usage on schema tests to authenticated, cadence_mcp;
+-- pgTAP lives in extensions; the production role needs no access there.
+grant usage on schema extensions to cadence_mcp;
 grant execute on function tests.visible_tables() to authenticated, cadence_mcp;
 
 select set_eq(
