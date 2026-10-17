@@ -1,8 +1,8 @@
 import { ideaReviewInput, PILLARS, PLATFORMS, FORMATS, TOPICS, type Clock } from '@cadence/core';
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { z } from 'zod';
-import type { Db, Tx } from './db';
-import { output } from './rows';
+import type { Db } from './db';
+import { HANDLERS, type Context } from './handlers';
 
 export interface ServerDeps {
   db: Db;
@@ -59,22 +59,6 @@ const postInput = z.object({
   isLeftovers: z.boolean().optional(),
   notes: z.string().optional(),
 });
-
-type Row = Record<string, unknown>;
-
-/** What a handler gets: the owner's transaction, settings and the current time. */
-interface Context {
-  tx: Tx;
-  settings: Row & { timezone: string };
-  deps: ServerDeps;
-}
-
-type Handler = (args: Record<string, unknown>, ctx: Context) => Promise<unknown>;
-
-const HANDLERS: Record<string, Handler> = {
-  get_settings: async (_args, { settings }) =>
-    output(settings, settings.timezone, ['id', 'owner_id', 'created_at', 'updated_at']),
-};
 
 /** Section 6.1. `read` tools never write. */
 const TOOLS: { name: string; read: boolean; description: string; input: z.ZodRawShape }[] = [
