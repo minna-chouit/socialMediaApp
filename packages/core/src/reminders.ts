@@ -1,7 +1,7 @@
 import { Temporal } from 'temporal-polyfill';
 import type { Checkin } from './checkins';
 import { goesLiveAt, type Post, type Settings } from './model';
-import { STAGES } from './stages';
+import { isApprovedOrLater, STAGES } from './stages';
 import { isWithin, planningWeek } from './time';
 
 /** Moves a non-urgent reminder inside quiet hours [quietStart, quietEnd) to the end of quiet hours (FR-13). */
@@ -80,6 +80,7 @@ const WEEKLY: {
   { code: 'WEEKLY_REPORT', weekday: 5, time: (s) => s.reportTime, mirror: true },
   { code: 'BATCH_NIGHT', weekday: 5, time: (s) => s.batchTime, mirror: true },
   { code: 'SHOT_LIST', weekday: 7, time: () => '18:00', mirror: false },
+  { code: 'SCHEDULE', weekday: 5, time: () => '22:00', mirror: false },
 ];
 
 const atLocal = (date: Temporal.PlainDate, time: string, timeZone: string) =>
@@ -138,6 +139,19 @@ export function shouldSend(reminder: Reminder, data: ReminderData, settings: Set
       return data.posts.some(
         (p) => STAGES.indexOf(p.status) <= STAGES.indexOf('capture') && goesLiveThisWeek(p),
       );
+    case 'SCHEDULE': {
+      const next = planningWeek(week.end, settings.timeZone);
+      return data.posts.some(
+        (p) =>
+          isApprovedOrLater(p.status) &&
+          p.variants.some(
+            (v) =>
+              !v.postedAt &&
+              !v.scheduledNatively &&
+              isWithin(goesLiveAt(p, v), next.start, next.end),
+          ),
+      );
+    }
     default:
       return true;
   }

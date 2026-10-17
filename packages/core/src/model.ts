@@ -13,6 +13,8 @@ export interface Variant {
   platform: Platform;
   format: Format;
   scheduledAt?: Temporal.Instant;
+  /** Scheduled in the platform's own scheduler. */
+  scheduledNatively?: boolean;
   postedAt?: Temporal.Instant;
 }
 

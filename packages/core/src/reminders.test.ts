@@ -168,3 +168,40 @@ describe('FR-13: send-time re-check', () => {
     expect(shouldSend(report, EMPTY, S)).toBe(true);
   });
 });
+
+// Generates the week's reminder with this code and re-checks it against the same data.
+const sends = (code: ReminderCode, fields: Partial<ReminderData>, settings = S) => {
+  const [reminder] = ofCode(remind(fields, settings), code);
+  return shouldSend(reminder, { ...EMPTY, ...fields }, settings);
+};
+
+describe('SCHEDULE', () => {
+  const nextWeek = (fields: Parameters<typeof post>[0] = {}) =>
+    post({ goLiveAt: at('2026-10-27T18:00:00Z'), ...fields });
+
+  it('SCHEDULE: Friday 22:00, not urgent, not mirrored', () => {
+    expect(ofCode(remind(), 'SCHEDULE').map(summary)).toEqual([
+      {
+        key: 'SCHEDULE::2026-10-23',
+        at: '2026-10-23T21:00:00Z',
+        sendAt: '2026-10-23T21:00:00Z',
+        urgent: false,
+        mirror: false,
+      },
+    ]);
+  });
+
+  it('SCHEDULE: cancelled once every approved variant for next week is scheduled', () => {
+    expect(sends('SCHEDULE', { posts: [nextWeek()] })).toBe(true);
+    expect(
+      sends('SCHEDULE', { posts: [nextWeek({ variants: [{ scheduledNatively: true }] })] }),
+    ).toBe(false);
+    expect(
+      sends('SCHEDULE', {
+        posts: [nextWeek({ variants: [{ postedAt: at('2026-10-23T10:00:00Z') }] })],
+      }),
+    ).toBe(false);
+    expect(sends('SCHEDULE', { posts: [nextWeek({ status: 'proposed' })] })).toBe(false);
+    expect(sends('SCHEDULE', { posts: [post()] })).toBe(false); // this week, not next
+  });
+});
