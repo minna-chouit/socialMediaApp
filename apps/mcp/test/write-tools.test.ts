@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it } from 'vitest';
-import { call, connect } from './harness';
+import { call, connect, OWNER } from './harness';
 
 let c: Awaited<ReturnType<typeof connect>>;
 beforeEach(async () => {
@@ -257,6 +257,42 @@ describe('update_variant', () => {
       await call(c, 'update_variant', { id, patch: { format: 'text' }, reason: 'Text post' }),
     ).toEqual({
       error: 'instagram does not support the text format',
+    });
+  });
+});
+
+describe('update_milestone', () => {
+  it('update_milestone: records outcome and decision and logs them', async () => {
+    const {
+      rows: [{ id }],
+    } = await c.pg.query<{ id: string }>(
+      `insert into public.milestones (owner_id, kind, week, title, due_at)
+       values ($1, 'checkpoint', 4, 'Phase 1 complete', '2026-11-13T19:00:00Z') returning id`,
+      [OWNER],
+    );
+    const milestone = await call(c, 'update_milestone', {
+      id,
+      outcome: 'Darija reels got 2x the shares',
+      decision: 'Go to Phase 2',
+      reason: 'Week 4 review with the owner',
+    });
+    expect(milestone).toMatchObject({
+      id,
+      outcome: 'Darija reels got 2x the shares',
+      decision: 'Go to Phase 2',
+    });
+    expect((await changeLog(id)).map((row) => [row.actor, row.field, row.new_value])).toEqual([
+      ['claude', 'decision', 'Go to Phase 2'],
+      ['claude', 'outcome', 'Darija reels got 2x the shares'],
+    ]);
+  });
+
+  it('update_milestone: an unknown milestone is a clear error', async () => {
+    const id = '99999999-9999-9999-9999-999999999999';
+    expect(
+      await call(c, 'update_milestone', { id, outcome: 'x', decision: 'y', reason: 'z' }),
+    ).toEqual({
+      error: `No milestone with id ${id}`,
     });
   });
 });

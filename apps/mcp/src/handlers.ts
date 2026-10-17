@@ -151,6 +151,22 @@ async function applyPatch(tx: Tx, table: string, id: unknown, patch: Row, column
 
 /** Tool handlers by name; each runs inside one owner transaction (see createServer). */
 export const HANDLERS: Record<string, Handler> = {
+  update_milestone: async ({ id, outcome, decision, reason }, { tx, settings }) => {
+    const [before] = await tx.query(
+      'select outcome, decision from public.milestones where id = $1',
+      [id],
+    );
+    if (!before) throw new ToolError(`No milestone with id ${id}`);
+    const [milestone] = await tx.query(
+      'update public.milestones set outcome = $2, decision = $3 where id = $1 returning *',
+      [id, outcome, decision],
+    );
+    const entity = { type: 'milestone', id };
+    await logWrite(tx, entity, 'outcome', { old: before.outcome, new: outcome }, reason);
+    await logWrite(tx, entity, 'decision', { old: before.decision, new: decision }, reason);
+    return output(milestone, settings.timezone);
+  },
+
   update_variant: async ({ id, patch }, { tx, settings }) => {
     const [current] = await tx.query(
       'select post_id, platform, format from public.variants where id = $1',
