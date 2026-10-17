@@ -48,3 +48,14 @@ jobs:
         if: always()
         shell: bash
         run: echo "::notice title=pgTAP output::$(cat db.out pgtap.out 2>/dev/null | grep -v -E 'Pulling|Waiting|Verifying|Download|Pull complete' | tail -c 60000 | sed 's/%/%25/g' | awk '{printf "%s%%0A", $0}')"
+
+  secrets:
+    name: NFR-6 secret scan
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: gitleaks/gitleaks-action@v2
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

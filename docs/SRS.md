@@ -225,6 +225,16 @@ These settle points the rules above leave open. Tests encode them.
 8. **Window and key date** use the reminder's scheduled time; quiet hours are applied afterwards and are [start, end).
 9. **Notification text** (for example the ideas awaiting a verdict at BATCH_NIGHT) is built with push delivery in M7; core decides only when and whether a reminder is sent.
 
+### 4.8 Clarifications (agreed in M4)
+
+1. **Actor and reason** for change_log come from the transaction settings `cadence.actor` and `cadence.reason`; writes by `cadence_mcp` always log actor = claude. change_log gained a `reason` column for section 6.2 rule 3.
+2. **`cadence_mcp`** has no BYPASSRLS; it sees the owner's rows only when the MCP server sets the owner's claims.
+3. **Single owner** is enforced by a trigger on `auth.users`; the first user becomes the owner and gets a settings row with section 5 defaults.
+4. **Database checks repeat core rules** as a backstop: formats per platform, verdict math, upload size limit.
+5. **Constraint tests** carry the ID of the rule they enforce (FR-4, FR-5, FR-10–14, FR-17, FR-20–22, FR-24), so the trace sees those IDs before their screens exist.
+6. **Magic-link-only sign-in** is Supabase auth configuration, not testable by pgTAP; the OAuth consent identity is checked in M5.
+7. **Database tests run in CI** (`db` job) and locally once Docker Desktop is available; the job publishes pgTAP output as a check annotation.
+
 ## 5. Data model
 
 Postgres (Supabase). Every table has `id uuid pk`, `owner_id uuid` (row-level security: owner_id = auth.uid()), `created_at` and `updated_at`. Timestamps are `timestamptz` in UTC; local time is applied in `@cadence/core`.
@@ -246,9 +256,9 @@ Postgres (Supabase). Every table has `id uuid pk`, `owner_id uuid` (row-level se
 
 | Table | Columns (beyond the common ones) | Constraints |
 | --- | --- | --- |
-| posts | title text, pillar, topics topic[], status stage, go_live_at, notes text, is_leftovers bool, idea_id → ideas, created_by actor | status default idea; created_by = claude forces status proposed on insert |
+| posts | title text, pillar, topics topic[], status stage, go_live_at, notes text, is_leftovers bool, idea_id → ideas, created_by actor, reminder_overrides jsonb | status default idea; created_by = claude (or any insert by `cadence_mcp`) forces status proposed on insert; linking an idea marks it promoted |
 | variants | post_id → posts, platform, format, language, caption, hook, hashtags text[], scheduled_at, scheduled_natively bool, posted_at, url | unique (post_id, platform); format allowed for platform (FR-4) |
-| change_log | entity_type, entity_id, actor, field, old_value jsonb, new_value jsonb, at | insert-only |
+| change_log | entity_type, entity_id, actor, field, old_value jsonb, new_value jsonb, reason text, at | insert-only; written by triggers on posts and variants |
 | media | storage_path, kind (photo, video), tags text[], taken_at, size_bytes | size ≤ settings.max_upload_mb |
 | post_media, idea_media | post_id or idea_id, media_id | composite pk |
 | ideas | text, source (phone, pc, chat), tags text[], pillar, topics topic[], status (new, reviewed, promoted, banked) | |
@@ -258,11 +268,11 @@ Postgres (Supabase). Every table has `id uuid pk`, `owner_id uuid` (row-level se
 | weekly_reports | week_start date, payload jsonb, generated_at, ready_for_claude_at | unique (week_start); payload immutable |
 | milestones | kind (checkpoint, research_refresh), week int, title, checks text[], due_at, outcome text, decision text | |
 | triggers | rule (T1–T4), platform, params jsonb, note, fired_at, resolved_at, resolved_by actor | one unresolved per (rule, platform) |
-| reminders | code, key text, entity_type, entity_id, send_at, sent_at, cancelled_at, urgent bool, calendar_event_id | unique (key) |
+| reminders | code, key text, entity_type, entity_id text, send_at, sent_at, cancelled_at, urgent bool, calendar_event_id | unique (owner, key) |
 | push_subscriptions | endpoint text, keys jsonb, device_label | unique (endpoint) |
-| settings | timezone (default Africa/Algiers), phase int, report_time, batch_time, reply_window_minutes, quiet_start, quiet_end, checkin_offsets jsonb, rule_params jsonb, work_on_personal bool (default false), max_upload_mb (default 100), first_post_at | one row per owner |
+| settings | timezone (default Africa/Algiers), phase int, report_time, batch_time, reply_window_minutes, quiet_start, quiet_end, checkin_offsets jsonb, rule_params jsonb, work_on_personal bool (default false), reply_reminders_tiktok bool (default false), max_upload_mb (default 100), first_post_at | one row per owner; created on sign-up |
 
-**Database roles:** the MCP server connects as role `cadence_mcp` with SELECT, INSERT and UPDATE only, so "Claude never deletes" is enforced by the database, not just by code.
+**Database roles:** the MCP server connects as role `cadence_mcp` with SELECT, INSERT and UPDATE only (INSERT and SELECT on change_log), so "Claude never deletes" is enforced by the database, not just by code. `cadence_mcp` is subject to the same owner-only RLS policies; the MCP server sets the owner's JWT claims per request.
 
 ## 6. MCP connector
 
