@@ -3,6 +3,7 @@ import { Temporal } from 'temporal-polyfill';
 import { describe, expect, it } from 'vitest';
 import { at, post, WEEK } from '../test/fixtures';
 import { markPosted } from './checkins';
+import { seedMilestones } from './milestones';
 import { DEFAULT_SETTINGS as S, type Post } from './model';
 import {
   applyQuietHours,
@@ -38,7 +39,7 @@ describe('FR-13: quiet hours', () => {
   });
 });
 
-const EMPTY: ReminderData = { posts: [], checkins: [], captureItems: [] };
+const EMPTY: ReminderData = { posts: [], checkins: [], captureItems: [], milestones: [] };
 const remind = (fields: Partial<ReminderData> = {}, settings = S, window = WEEK) =>
   generateReminders({ ...EMPTY, ...fields }, settings, window);
 const ofCode = (reminders: Reminder[], code: ReminderCode) =>
@@ -414,5 +415,34 @@ describe('LI_CAPTURE and LI_FALLBACK', () => {
         mirror: false,
       },
     ]);
+  });
+});
+
+describe('MILESTONE', () => {
+  // First post Wednesday 21 Oct: the week-1 checkpoint is due Friday 23 Oct 20:00.
+  const milestones = seedMilestones(at('2026-10-21T11:00:00Z'), S);
+
+  it('MILESTONE: at the due time (Friday 20:00), not urgent, mirrored', () => {
+    expect(
+      ofCode(remind({ milestones }), 'MILESTONE').map((r) => [r.entityType, summary(r)]),
+    ).toEqual([
+      [
+        'milestone',
+        {
+          key: 'MILESTONE:checkpoint:1:2026-10-23',
+          at: '2026-10-23T19:00:00Z',
+          sendAt: '2026-10-23T19:00:00Z',
+          urgent: false,
+          mirror: true,
+        },
+      ],
+    ]);
+  });
+
+  it('MILESTONE: cancelled once an outcome is recorded', () => {
+    expect(sends('MILESTONE', { milestones })).toBe(true);
+    const done = milestones.map((m) => ({ ...m, outcome: 'All set up' }));
+    const [reminder] = ofCode(remind({ milestones }), 'MILESTONE');
+    expect(shouldSend(reminder, { ...EMPTY, milestones: done }, S)).toBe(false);
   });
 });

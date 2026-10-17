@@ -1,5 +1,6 @@
 import { Temporal } from 'temporal-polyfill';
 import type { Checkin } from './checkins';
+import type { Milestone } from './milestones';
 import { goesLiveAt, type Post, type Settings } from './model';
 import { isApprovedOrLater, STAGES } from './stages';
 import { isWithin, planningWeek } from './time';
@@ -61,6 +62,7 @@ export interface ReminderData {
   checkins: Checkin[];
   /** Ideas and media, for the linkedin-capture tag. */
   captureItems: { tags: string[]; createdAt: Temporal.Instant }[];
+  milestones: Milestone[];
 }
 
 export interface Window {
@@ -163,6 +165,17 @@ function perCheckin(data: ReminderData): Spec[] {
   }));
 }
 
+function perMilestone(data: ReminderData): Spec[] {
+  return data.milestones.map((m) => ({
+    code: 'MILESTONE',
+    entityType: 'milestone',
+    entityId: m.id,
+    at: m.dueAt,
+    urgent: false,
+    mirror: true,
+  }));
+}
+
 const findVariant = (data: ReminderData, id: string | null) =>
   data.posts.flatMap((post) => post.variants).find((v) => v.id === id);
 
@@ -177,6 +190,7 @@ export function generateReminders(
     ...weekly(localDates(window, timeZone), settings),
     ...perVariant(data, settings),
     ...perCheckin(data),
+    ...perMilestone(data),
   ]
     .filter((spec) => isWithin(spec.at, window.from, window.to))
     .map((spec) => ({
@@ -223,6 +237,10 @@ export function shouldSend(reminder: Reminder, data: ReminderData, settings: Set
           item.tags.includes('linkedin-capture') &&
           Temporal.Instant.compare(item.createdAt, week.start) >= 0,
       );
+    case 'MILESTONE': {
+      const milestone = data.milestones.find((m) => m.id === reminder.entityId);
+      return !!milestone && milestone.outcome === null;
+    }
     case 'CHECKIN': {
       const checkin = data.checkins.find((c) => checkinId(c) === reminder.entityId);
       return !!checkin && !checkin.doneAt;
