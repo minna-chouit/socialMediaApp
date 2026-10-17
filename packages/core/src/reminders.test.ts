@@ -2,6 +2,7 @@ import fc from 'fast-check';
 import { Temporal } from 'temporal-polyfill';
 import { describe, expect, it } from 'vitest';
 import { at, post, WEEK } from '../test/fixtures';
+import { markPosted } from './checkins';
 import { DEFAULT_SETTINGS as S, type Post } from './model';
 import {
   applyQuietHours,
@@ -331,5 +332,32 @@ describe('MISSED', () => {
     expect(
       sendsFor('MISSED', [post({ variants: [{ postedAt: at('2026-10-19T10:30:00Z') }] })]),
     ).toBe(false);
+  });
+});
+
+describe('CHECKIN', () => {
+  // Posted Saturday 17 Oct: day-3 check-in due Tue 20 Oct 20:00, day-7 due Sat 24 Oct (outside WEEK).
+  const { checkins } = markPosted(post().variants[0], at('2026-10-17T10:00:00Z'), S);
+
+  it('CHECKIN: at the check-in due time (20:00 local), not urgent', () => {
+    expect(ofCode(remind({ checkins }), 'CHECKIN').map((r) => [r.entityType, summary(r)])).toEqual([
+      [
+        'checkin',
+        {
+          key: `CHECKIN:${checkins[0].variantId}:d3:2026-10-20`,
+          at: '2026-10-20T19:00:00Z',
+          sendAt: '2026-10-20T19:00:00Z',
+          urgent: false,
+          mirror: false,
+        },
+      ],
+    ]);
+  });
+
+  it('CHECKIN: cancelled once the check-in is done', () => {
+    const [reminder] = ofCode(remind({ checkins }), 'CHECKIN');
+    expect(shouldSend(reminder, { ...EMPTY, checkins }, S)).toBe(true);
+    const done = [{ ...checkins[0], doneAt: at('2026-10-20T18:00:00Z') }, checkins[1]];
+    expect(shouldSend(reminder, { ...EMPTY, checkins: done }, S)).toBe(false);
   });
 });

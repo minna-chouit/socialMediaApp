@@ -149,6 +149,20 @@ function perVariant(data: ReminderData, settings: Settings): Spec[] {
     );
 }
 
+// A check-in has no id of its own in core; (variant, day offset) is unique.
+const checkinId = (c: Checkin) => `${c.variantId}:d${c.dayOffset}`;
+
+function perCheckin(data: ReminderData): Spec[] {
+  return data.checkins.map((c) => ({
+    code: 'CHECKIN',
+    entityType: 'checkin',
+    entityId: checkinId(c),
+    at: c.dueAt,
+    urgent: false,
+    mirror: false,
+  }));
+}
+
 const findVariant = (data: ReminderData, id: string | null) =>
   data.posts.flatMap((post) => post.variants).find((v) => v.id === id);
 
@@ -159,7 +173,11 @@ export function generateReminders(
   window: Window,
 ): Reminder[] {
   const timeZone = settings.timeZone;
-  return [...weekly(localDates(window, timeZone), settings), ...perVariant(data, settings)]
+  return [
+    ...weekly(localDates(window, timeZone), settings),
+    ...perVariant(data, settings),
+    ...perCheckin(data),
+  ]
     .filter((spec) => isWithin(spec.at, window.from, window.to))
     .map((spec) => ({
       ...spec,
@@ -198,6 +216,10 @@ export function shouldSend(reminder: Reminder, data: ReminderData, settings: Set
     case 'MISSED': {
       const variant = findVariant(data, reminder.entityId);
       return !!variant && !variant.postedAt;
+    }
+    case 'CHECKIN': {
+      const checkin = data.checkins.find((c) => checkinId(c) === reminder.entityId);
+      return !!checkin && !checkin.doneAt;
     }
     case 'REPLY_START':
     case 'REPLY_END':
