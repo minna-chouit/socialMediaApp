@@ -355,3 +355,27 @@ describe('list_milestones', () => {
     expect(open.map((m: { week: number }) => m.week)).toEqual([2]);
   });
 });
+
+describe('list_triggers', () => {
+  it('list_triggers: newest first; unresolvedOnly leaves out resolved triggers', async () => {
+    await c.pg.query(
+      `insert into public.triggers (owner_id, rule, platform, note, fired_at, resolved_at, resolved_by)
+       values ($1, 'T2', null, null, '2026-10-05T07:00:00Z', '2026-10-06T10:00:00Z', 'owner'),
+              ($1, 'T4', 'tiktok', 'New ranking signal', '2026-10-20T07:00:00Z', null, null)`,
+      [OWNER],
+    );
+    const all = await call(c, 'list_triggers', {});
+    expect(all.map((t: { rule: string }) => t.rule)).toEqual(['T4', 'T2']);
+    expect(all[0]).toMatchObject({
+      platform: 'tiktok',
+      note: 'New ranking signal',
+      firedAt: '2026-10-20T08:00:00+01:00',
+      resolvedAt: null,
+    });
+    expect(
+      (await call(c, 'list_triggers', { unresolvedOnly: true })).map(
+        (t: { rule: string }) => t.rule,
+      ),
+    ).toEqual(['T4']);
+  });
+});
