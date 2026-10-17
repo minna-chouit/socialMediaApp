@@ -76,8 +76,11 @@ describe('NFR-10: SRS traceability', () => {
   });
 
   it('NFR-10: an ID only in a pgTAP comment does not count', () => {
-    const run = runTrace(call('it', 'NFR-10: b'), `-- NFR-8 is checked elsewhere
-select ok(true, 'rls');`);
+    const run = runTrace(
+      call('it', 'NFR-10: b'),
+      `-- NFR-8 is checked elsewhere
+select ok(true, 'rls');`,
+    );
     expect(run.status).toBe(1);
   });
 });
