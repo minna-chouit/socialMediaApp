@@ -118,14 +118,33 @@ function weekly(dates: Temporal.PlainDate[], settings: Settings): Spec[] {
   );
 }
 
+// Reminders tied to each approved-or-later variant.
+function perVariant(data: ReminderData): Spec[] {
+  return data.posts
+    .filter((post) => isApprovedOrLater(post.status))
+    .flatMap((post) =>
+      post.variants.map((variant): Spec => ({
+        code: 'POST_NOW',
+        entityType: 'variant',
+        entityId: variant.id,
+        at: goesLiveAt(post, variant),
+        urgent: true,
+        mirror: false,
+      })),
+    );
+}
+
+const findVariant = (data: ReminderData, id: string | null) =>
+  data.posts.flatMap((post) => post.variants).find((v) => v.id === id);
+
 /** Reminders scheduled in the window (section 4.2); idempotent by key. */
 export function generateReminders(
-  _data: ReminderData,
+  data: ReminderData,
   settings: Settings,
   window: Window,
 ): Reminder[] {
   const timeZone = settings.timeZone;
-  return weekly(localDates(window, timeZone), settings)
+  return [...weekly(localDates(window, timeZone), settings), ...perVariant(data)]
     .filter((spec) => isWithin(spec.at, window.from, window.to))
     .map((spec) => ({
       ...spec,
@@ -156,6 +175,10 @@ export function shouldSend(reminder: Reminder, data: ReminderData, settings: Set
               isWithin(goesLiveAt(p, v), next.start, next.end),
           ),
       );
+    }
+    case 'POST_NOW': {
+      const variant = findVariant(data, reminder.entityId);
+      return !!variant && !variant.postedAt && !variant.scheduledNatively;
     }
     default:
       return true;

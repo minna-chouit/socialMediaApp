@@ -2,7 +2,7 @@ import fc from 'fast-check';
 import { Temporal } from 'temporal-polyfill';
 import { describe, expect, it } from 'vitest';
 import { at, post, WEEK } from '../test/fixtures';
-import { DEFAULT_SETTINGS as S } from './model';
+import { DEFAULT_SETTINGS as S, type Post } from './model';
 import {
   applyQuietHours,
   generateReminders,
@@ -230,5 +230,45 @@ describe('MONTHLY_REVIEW', () => {
     expect(keys('2026-07-24T23:00:00Z', '2026-08-14T23:00:00Z')).toEqual([
       'MONTHLY_REVIEW::2026-08-01',
     ]);
+  });
+});
+
+// Re-checks the reminder with this code for the given variant against the same data.
+const sendsFor = (code: ReminderCode, posts: Post[], fields: Partial<ReminderData> = {}) => {
+  const data = { ...EMPTY, posts, ...fields };
+  const [reminder] = ofCode(generateReminders(data, S, WEEK), code);
+  return shouldSend(reminder, data, S);
+};
+
+describe('POST_NOW', () => {
+  it("POST_NOW: at the variant's go-live time, urgent, keyed by variant", () => {
+    const p = post({ variants: [{ scheduledAt: at('2026-10-20T18:00:00Z') }] });
+    expect(ofCode(remind({ posts: [p] }), 'POST_NOW').map(summary)).toEqual([
+      {
+        key: `POST_NOW:${p.variants[0].id}:2026-10-20`,
+        at: '2026-10-20T18:00:00Z',
+        sendAt: '2026-10-20T18:00:00Z',
+        urgent: true,
+        mirror: false,
+      },
+    ]);
+    expect(ofCode(remind({ posts: [post({ status: 'proposed' })] }), 'POST_NOW')).toEqual([]);
+  });
+
+  it('POST_NOW: urgent, so quiet hours do not delay it', () => {
+    const lateNight = post({ goLiveAt: at('2026-10-19T22:45:00Z') }); // 23:45 local
+    expect(ofCode(remind({ posts: [lateNight] }), 'POST_NOW')[0].sendAt.toString()).toBe(
+      '2026-10-19T22:45:00Z',
+    );
+  });
+
+  it('POST_NOW: cancelled if the variant is scheduled natively or already posted', () => {
+    expect(sendsFor('POST_NOW', [post()])).toBe(true);
+    expect(sendsFor('POST_NOW', [post({ variants: [{ scheduledNatively: true }] })])).toBe(false);
+    expect(
+      sendsFor('POST_NOW', [post({ variants: [{ postedAt: at('2026-10-19T10:00:00Z') }] })]),
+    ).toBe(false);
+    const [reminder] = ofCode(remind({ posts: [post()] }), 'POST_NOW');
+    expect(shouldSend(reminder, EMPTY, S)).toBe(false); // variant no longer exists
   });
 });
