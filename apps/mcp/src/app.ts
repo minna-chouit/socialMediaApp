@@ -38,7 +38,33 @@ import {
   type Context,
 } from './handlers';
 import { output } from './rows';
+import type { Push, PushTarget } from './push';
 import type { ServerDeps } from './server';
+
+/** The web app also sends push notifications and links them back to itself. */
+export interface AppDeps extends ServerDeps {
+  push?: Push;
+  vapidPublicKey?: string;
+  /** The app's own URL, opened when a notification is tapped. */
+  appUrl?: string;
+}
+
+const REMINDER_TEXT: Record<string, string> = {
+  SHOT_LIST: 'Make the shot list for this week',
+  WEEKLY_REPORT: 'Weekly report: log followers, then send it to Claude',
+  BATCH_NIGHT: 'Batch night with Claude',
+  SCHEDULE: "Schedule next week's approved posts",
+  POST_NOW: 'Post now',
+  REPLY_START: 'Reply window: answer comments for 15 minutes',
+  REPLY_END: 'Reply window is over',
+  CHECKIN: 'Log check-in metrics',
+  MISSED: 'Missed yesterday: post it or use a leftovers post',
+  LI_CAPTURE: 'Capture one piece of real work for LinkedIn',
+  LI_FALLBACK: 'No LinkedIn capture yet: write a reflection post',
+  MILESTONE: 'Milestone review',
+  MONTHLY_REVIEW: 'Monthly review',
+  TRIGGER: 'Strategy trigger: review with Claude',
+};
 
 type Row = Record<string, unknown>;
 type Action = (args: Row, ctx: Context) => Promise<unknown>;
@@ -95,6 +121,38 @@ async function reportData(ctx: Context) {
   };
 }
 
+// What reminders need, and a short label for what each one is about.
+async function reminderContext(ctx: Context) {
+  const data = {
+    posts: await loadPosts(ctx.tx),
+    checkins: await loadCheckins(ctx.tx),
+    captureItems: await loadCaptureItems(ctx.tx),
+    milestones: await loadMilestones(ctx.tx),
+    triggers: await loadTriggers(ctx.tx),
+  };
+  const variantTitle = new Map(
+    data.posts.flatMap((p) => p.variants.map((v) => [v.id, `${p.title} (${v.platform})`] as const)),
+  );
+  const about = ({
+    entityType,
+    entityId,
+  }: {
+    entityType: string | null;
+    entityId: string | null;
+  }) => {
+    if (entityType === 'variant') return variantTitle.get(String(entityId)) ?? null;
+    if (entityType === 'checkin') {
+      const [variantId, offset] = String(entityId).split(':d');
+      return `${variantTitle.get(variantId) ?? 'post'}, day ${offset}`;
+    }
+    if (entityType === 'milestone')
+      return data.milestones.find((m) => m.id === entityId)?.title ?? null;
+    if (entityType === 'trigger') return data.triggers.find((t) => t.id === entityId)?.rule ?? null;
+    return null;
+  };
+  return { data, settings: coreSettings(ctx.settings), about };
+}
+
 const weekStartOf = (ctx: Context) => {
   const tz = ctx.settings.timezone;
   return planningWeek(ctx.deps.clock.now(), tz)
@@ -104,48 +162,86 @@ const weekStartOf = (ctx: Context) => {
 };
 
 export const APP_ACTIONS: Record<string, Action> = {
-  // Reminders still due today (section 4.2), shown in the app instead of push for now.
+  // Reminders still due today (section 4.2).
   today: async (_args, ctx) => {
     const tz = ctx.settings.timezone;
-    const settings = coreSettings(ctx.settings);
+    const { data, settings, about } = await reminderContext(ctx);
     const day = ctx.deps.clock.now().toZonedDateTimeISO(tz).toPlainDate();
     const window = {
       from: day.toZonedDateTime(tz).toInstant(),
       to: day.add({ days: 1 }).toZonedDateTime(tz).toInstant(),
     };
-    const data = {
-      posts: await loadPosts(ctx.tx),
-      checkins: await loadCheckins(ctx.tx),
-      captureItems: await loadCaptureItems(ctx.tx),
-      milestones: await loadMilestones(ctx.tx),
-      triggers: await loadTriggers(ctx.tx),
-    };
-    const variantTitle = new Map(
-      data.posts.flatMap((p) =>
-        p.variants.map((v) => [v.id, `${p.title} (${v.platform})`] as const),
-      ),
-    );
-    const about = (entityType: string | null, entityId: string | null) => {
-      if (entityType === 'variant') return variantTitle.get(String(entityId)) ?? null;
-      if (entityType === 'checkin') {
-        const [variantId, offset] = String(entityId).split(':d');
-        return `${variantTitle.get(variantId) ?? 'post'}, day ${offset}`;
-      }
-      if (entityType === 'milestone')
-        return data.milestones.find((m) => m.id === entityId)?.title ?? null;
-      if (entityType === 'trigger')
-        return data.triggers.find((t) => t.id === entityId)?.rule ?? null;
-      return null;
-    };
     return generateReminders(data, settings, window)
       .filter((r) => shouldSend(r, data, settings))
       .sort((a, b) => Temporal.Instant.compare(a.sendAt, b.sendAt))
-      .map((r) => ({
-        code: r.code,
-        at: iso(r.sendAt, tz),
-        urgent: r.urgent,
-        about: about(r.entityType, r.entityId),
-      }));
+      .map((r) => ({ code: r.code, at: iso(r.sendAt, tz), urgent: r.urgent, about: about(r) }));
+  },
+
+  push_key: async (_args, ctx) => ({ publicKey: (ctx.deps as AppDeps).vapidPublicKey ?? null }),
+
+  // FR-14: one row per device; subscribing again refreshes its keys.
+  subscribe: async ({ subscription, deviceLabel }, ctx) => {
+    const sub = subscription as { endpoint?: string; keys?: unknown };
+    if (!sub?.endpoint || !sub.keys) throw new ToolError('That is not a push subscription');
+    await ctx.tx.query(
+      `insert into public.push_subscriptions (endpoint, keys, device_label) values ($1, $2, $3)
+       on conflict (endpoint) do update set keys = excluded.keys, device_label = excluded.device_label`,
+      [sub.endpoint, JSON.stringify(sub.keys), deviceLabel ?? null],
+    );
+    return { ok: true };
+  },
+
+  // FR-14 / NFR-7: called every few minutes by the scheduler. Each reminder key is claimed once in
+  // the reminders table before sending, so overlapping or repeated runs never send twice.
+  tick: async (_args, ctx) => {
+    const deps = ctx.deps as AppDeps;
+    const now = deps.clock.now();
+    const { data, settings, about } = await reminderContext(ctx);
+    // 12 h back covers reminders that quiet hours moved to the end of the night.
+    const due = generateReminders(data, settings, {
+      from: now.subtract({ hours: 12 }),
+      to: now.add({ seconds: 1 }),
+    }).filter((r) => Temporal.Instant.compare(r.sendAt, now) <= 0);
+    const subscriptions = await ctx.tx.query<{ endpoint: string; keys: PushTarget['keys'] }>(
+      'select endpoint, keys from public.push_subscriptions',
+    );
+    let sent = 0;
+    let skipped = 0;
+    for (const r of due) {
+      const claimed = await ctx.tx.query(
+        `insert into public.reminders (code, key, entity_type, entity_id, send_at, urgent)
+         values ($1, $2, $3, $4, $5, $6) on conflict (owner_id, key) do nothing returning id`,
+        [r.code, r.key, r.entityType, r.entityId, r.sendAt.toString(), r.urgent],
+      );
+      if (!claimed.length) continue; // already handled by an earlier run
+      // A run that missed more than 30 minutes catches up silently instead of sending stale nudges.
+      const stale = Temporal.Instant.compare(r.sendAt, now.subtract({ minutes: 30 })) < 0;
+      const send = !stale && shouldSend(r, data, settings) && Boolean(deps.push);
+      if (send) {
+        const label = about(r);
+        const payload = {
+          title: REMINDER_TEXT[r.code] ?? r.code,
+          body: label ?? 'Open Cadence',
+          url: deps.appUrl ?? '/',
+          tag: r.key,
+        };
+        for (const target of subscriptions) {
+          if ((await deps.push!(target, payload)) === 'gone') {
+            await ctx.tx.query('delete from public.push_subscriptions where endpoint = $1', [
+              target.endpoint,
+            ]);
+          }
+        }
+        sent++;
+      } else {
+        skipped++;
+      }
+      await ctx.tx.query(
+        `update public.reminders set ${send ? 'sent_at' : 'cancelled_at'} = $2 where key = $1`,
+        [r.key, now.toString()],
+      );
+    }
+    return { sent, skipped, devices: subscriptions.length };
   },
 
   checkins: async (_args, ctx) => {
@@ -351,7 +447,7 @@ export const APP_ACTIONS: Record<string, Action> = {
 };
 
 /** Runs one action in an owner transaction. ToolError messages are for the person using the app. */
-export async function runAction(deps: ServerDeps, action: string, args: Row = {}) {
+export async function runAction(deps: AppDeps, action: string, args: Row = {}) {
   const run = APP_ACTIONS[action];
   if (!run) throw new ToolError(`Unknown action ${action}`);
   return deps.db(deps.ownerId, null, async (tx) => {
@@ -364,7 +460,7 @@ const matches = (given: string, secret: string) =>
   given.length === secret.length && timingSafeEqual(Buffer.from(given), Buffer.from(secret));
 
 /** POST /api/app with header x-cadence-key: the same secret as the connector URL. */
-export function createAppHandler({ secret, deps }: { secret: string; deps: ServerDeps }) {
+export function createAppHandler({ secret, deps }: { secret: string; deps: AppDeps }) {
   if (secret.length < 32) throw new Error('MCP_SECRET must be at least 32 characters');
   return async (req: IncomingMessage, res: ServerResponse) => {
     const send = (status: number, body: unknown) =>

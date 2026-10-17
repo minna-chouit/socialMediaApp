@@ -1,0 +1,9 @@
+{
+  "name": "Cadence",
+  "short_name": "Cadence",
+  "description": "Your social media plan",
+  "display": "standalone",
+  "scope": "/app/",
+  "background_color": "#141413",
+  "theme_color": "#141413"
+}

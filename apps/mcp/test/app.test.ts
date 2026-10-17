@@ -3,6 +3,7 @@ import { createServer as createHttpServer } from 'node:http';
 import type { AddressInfo } from 'node:net';
 import { beforeEach, describe, expect, it } from 'vitest';
 import { createAppHandler, runAction } from '../src/app';
+import type { PushPayload, PushTarget } from '../src/push';
 import type { ServerDeps } from '../src/server';
 import { freshDatabase, NOW, OWNER, pgliteDb, seedPost } from './harness';
 
@@ -199,5 +200,76 @@ describe('owner web app: today, check-ins, followers, report', () => {
     });
     await app('send_report'); // again: only readiness changes, the payload stays immutable
     expect((await app('report')).sent).toHaveLength(1);
+  });
+});
+
+describe('owner web app: push notifications', () => {
+  const pushed: { endpoint: string; title: string; body: string; url: string }[] = [];
+  const gone = new Set<string>();
+  const withPush = () => {
+    pushed.length = 0;
+    deps = {
+      ...deps,
+      appUrl: 'https://cadence.test/app/key',
+      vapidPublicKey: 'public-key',
+      push: async (target: PushTarget, payload: PushPayload) => {
+        if (gone.has(target.endpoint)) return 'gone';
+        pushed.push({ endpoint: target.endpoint, ...payload });
+        return 'sent';
+      },
+    } as typeof deps;
+  };
+  const subscribe = (endpoint: string) =>
+    app('subscribe', {
+      subscription: { endpoint, keys: { p256dh: 'p', auth: 'a' } },
+      deviceLabel: 'iPhone',
+    });
+
+  it('FR-14: a due reminder is pushed once to every device; running again sends nothing (NFR-7)', async () => {
+    withPush();
+    await subscribe('https://push.test/phone');
+    await subscribe('https://push.test/laptop');
+    await seedPost(pg, { title: 'Noon reel', goLiveAt: '2026-10-21T11:00:00Z' }); // now
+    expect(await app('tick')).toEqual({ sent: 1, skipped: 1, devices: 2 }); // REPLY_START skipped: not posted
+    expect(pushed.map((p) => [p.endpoint, p.title, p.body, p.url])).toEqual([
+      [
+        'https://push.test/phone',
+        'Post now',
+        'Noon reel (instagram)',
+        'https://cadence.test/app/key',
+      ],
+      [
+        'https://push.test/laptop',
+        'Post now',
+        'Noon reel (instagram)',
+        'https://cadence.test/app/key',
+      ],
+    ]);
+    expect(await app('tick')).toEqual({ sent: 0, skipped: 0, devices: 2 });
+    expect(pushed).toHaveLength(2);
+  });
+
+  it('FR-14: a reminder more than 30 minutes late is skipped, not sent', async () => {
+    withPush();
+    await subscribe('https://push.test/phone');
+    await seedPost(pg, { title: 'Earlier', goLiveAt: '2026-10-21T10:00:00Z' }); // an hour ago
+    expect((await app('tick')).sent).toBe(0);
+    expect(pushed).toEqual([]);
+  });
+
+  it('FR-14: a device that unsubscribed is forgotten', async () => {
+    withPush();
+    await subscribe('https://push.test/old');
+    await subscribe('https://push.test/old'); // subscribing again updates, not duplicates
+    gone.add('https://push.test/old');
+    await seedPost(pg, { title: 'Noon reel', goLiveAt: '2026-10-21T11:00:00Z' });
+    await app('tick');
+    const { rows } = await pg.query('select endpoint from public.push_subscriptions');
+    expect(rows).toEqual([]);
+  });
+
+  it('FR-14: the page can read the public VAPID key', async () => {
+    withPush();
+    expect(await app('push_key')).toEqual({ publicKey: 'public-key' });
   });
 });
