@@ -76,11 +76,14 @@ const WEEKLY: {
   weekday: number;
   time: (s: Settings) => string;
   mirror: boolean;
+  /** Only the first such weekday of the month. */
+  firstInMonth?: boolean;
 }[] = [
   { code: 'WEEKLY_REPORT', weekday: 5, time: (s) => s.reportTime, mirror: true },
   { code: 'BATCH_NIGHT', weekday: 5, time: (s) => s.batchTime, mirror: true },
   { code: 'SHOT_LIST', weekday: 7, time: () => '18:00', mirror: false },
   { code: 'SCHEDULE', weekday: 5, time: () => '22:00', mirror: false },
+  { code: 'MONTHLY_REVIEW', weekday: 6, time: () => '11:00', mirror: true, firstInMonth: true },
 ];
 
 const atLocal = (date: Temporal.PlainDate, time: string, timeZone: string) =>
@@ -102,14 +105,16 @@ function localDates(window: Window, timeZone: string): Temporal.PlainDate[] {
 
 function weekly(dates: Temporal.PlainDate[], settings: Settings): Spec[] {
   return dates.flatMap((date) =>
-    WEEKLY.filter((w) => w.weekday === date.dayOfWeek).map((w) => ({
-      code: w.code,
-      entityType: null,
-      entityId: null,
-      at: atLocal(date, w.time(settings), settings.timeZone),
-      urgent: false,
-      mirror: w.mirror,
-    })),
+    WEEKLY.filter((w) => w.weekday === date.dayOfWeek && (!w.firstInMonth || date.day <= 7)).map(
+      (w) => ({
+        code: w.code,
+        entityType: null,
+        entityId: null,
+        at: atLocal(date, w.time(settings), settings.timeZone),
+        urgent: false,
+        mirror: w.mirror,
+      }),
+    ),
   );
 }
 

@@ -205,3 +205,30 @@ describe('SCHEDULE', () => {
     expect(sends('SCHEDULE', { posts: [post()] })).toBe(false); // this week, not next
   });
 });
+
+describe('MONTHLY_REVIEW', () => {
+  const keys = (from: string, to: string) =>
+    ofCode(remind({}, S, { from: at(from), to: at(to) }), 'MONTHLY_REVIEW').map((r) => r.key);
+
+  it('MONTHLY_REVIEW: first Saturday of the month at 11:00, mirrored', () => {
+    expect(keys('2026-09-25T23:00:00Z', '2026-11-13T23:00:00Z')).toEqual([
+      'MONTHLY_REVIEW::2026-10-03',
+      'MONTHLY_REVIEW::2026-11-07',
+    ]);
+    const [review] = ofCode(
+      remind({}, S, { from: at('2026-10-02T23:00:00Z'), to: at('2026-10-04T00:00:00Z') }),
+      'MONTHLY_REVIEW',
+    );
+    expect(summary(review)).toMatchObject({
+      at: '2026-10-03T10:00:00Z',
+      urgent: false,
+      mirror: true,
+    });
+  });
+
+  it('MONTHLY_REVIEW: a month that starts on a Saturday reviews on the 1st', () => {
+    expect(keys('2026-07-24T23:00:00Z', '2026-08-14T23:00:00Z')).toEqual([
+      'MONTHLY_REVIEW::2026-08-01',
+    ]);
+  });
+});
