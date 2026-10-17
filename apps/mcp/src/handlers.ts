@@ -124,6 +124,16 @@ const POST_PATCH: Columns = {
   notes: { column: 'notes' },
 };
 
+const VARIANT_PATCH: Columns = {
+  platform: { column: 'platform' },
+  format: { column: 'format' },
+  language: { column: 'language' },
+  caption: { column: 'caption' },
+  hook: { column: 'hook' },
+  hashtags: { column: 'hashtags', cast: '::text[]', toDb: textArray },
+  scheduledAt: { column: 'scheduled_at' },
+};
+
 /** Applies a validated patch; false when no row with that id is visible to the owner. */
 async function applyPatch(tx: Tx, table: string, id: unknown, patch: Row, columns: Columns) {
   const entries = Object.entries(patch).filter(([key]) => key in columns);
@@ -141,6 +151,20 @@ async function applyPatch(tx: Tx, table: string, id: unknown, patch: Row, column
 
 /** Tool handlers by name; each runs inside one owner transaction (see createServer). */
 export const HANDLERS: Record<string, Handler> = {
+  update_variant: async ({ id, patch }, { tx, settings }) => {
+    const [current] = await tx.query(
+      'select post_id, platform, format from public.variants where id = $1',
+      [id],
+    );
+    if (!current) throw new ToolError(`No variant with id ${id}`);
+    const next = { platform: current.platform, format: current.format, ...(patch as Row) };
+    const problems = checkVariants([next] as Parameters<typeof checkVariants>[0]);
+    if (problems.length) throw new ToolError(problems.join('; '));
+    await applyPatch(tx, 'variants', id, patch as Row, VARIANT_PATCH);
+    const post = await readPost(tx, current.post_id, settings.timezone);
+    return { post, warnings: await weekWarnings(tx, post.goLiveAt, settings) };
+  },
+
   update_post: async ({ id, patch }, { tx, settings }) => {
     if (!(await applyPatch(tx, 'posts', id, patch as Row, POST_PATCH))) {
       throw new ToolError(`No post with id ${id}`);

@@ -210,3 +210,53 @@ describe('update_post', () => {
     });
   });
 });
+
+describe('update_variant', () => {
+  const proposeVariant = async () => {
+    const { post } = await call(c, 'propose_post', {
+      title: 'Lab day',
+      pillar: 'student_life',
+      topics: [],
+      goLiveAt: '2026-10-27T19:00:00+01:00',
+      variants: [{ platform: 'instagram', format: 'reel', hook: 'Old hook' }],
+      reason: 'Student_life slot',
+    });
+    return post.variants[0].id as string;
+  };
+
+  it('update_variant: applies the patch and logs actor claude with the reason', async () => {
+    const id = await proposeVariant();
+    const result = await call(c, 'update_variant', {
+      id,
+      patch: { hook: 'What a 9-hour lab looks like', scheduledAt: '2026-10-27T20:00:00+01:00' },
+      reason: 'Hook names the payoff',
+    });
+    expect(result.post.variants[0]).toMatchObject({
+      id,
+      hook: 'What a 9-hour lab looks like',
+      scheduledAt: '2026-10-27T20:00:00+01:00',
+    });
+    expect((await changeLog(id)).map((row) => [row.actor, row.field, row.reason])).toEqual([
+      ['claude', 'hook', 'Hook names the payoff'],
+      ['claude', 'scheduled_at', 'Hook names the payoff'],
+    ]);
+  });
+
+  it('update_variant: a patch with postedAt or status is rejected', async () => {
+    const id = await proposeVariant();
+    for (const patch of [{ postedAt: '2026-10-27T19:00:00+01:00' }, { status: 'posted' }]) {
+      expect((await call(c, 'update_variant', { id, patch, reason: 'Mark posted' })).error).toMatch(
+        /postedAt|status/,
+      );
+    }
+  });
+
+  it('update_variant: a format the platform does not support is rejected with a clear message', async () => {
+    const id = await proposeVariant();
+    expect(
+      await call(c, 'update_variant', { id, patch: { format: 'text' }, reason: 'Text post' }),
+    ).toEqual({
+      error: 'instagram does not support the text format',
+    });
+  });
+});
