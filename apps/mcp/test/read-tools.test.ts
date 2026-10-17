@@ -138,3 +138,53 @@ describe('check_balance', () => {
     });
   });
 });
+
+describe('list_ideas', () => {
+  it('list_ideas: filters by status, limits, and includes the latest verdict', async () => {
+    const idea = async (text: string, status: string, at: string) =>
+      (
+        await c.pg.query<{ id: string }>(
+          `insert into public.ideas (owner_id, text, source, status, created_at) values ($1, $2, 'phone', $3, $4) returning id`,
+          [OWNER, text, status, at],
+        )
+      ).rows[0].id;
+    await idea('Gym vlog', 'new', '2026-10-01T10:00:00Z');
+    const reviewed = await idea('Exam week POV', 'reviewed', '2026-10-02T10:00:00Z');
+    await idea('Thrift haul', 'banked', '2026-10-03T10:00:00Z');
+    const verdict = (total: number, verdict: string, scores: string, at: string) =>
+      c.pg.query(
+        `insert into public.idea_verdicts (owner_id, idea_id, scores, total, verdict, notes, alternatives, by, created_at)
+         values ($1, $2, $3, $4, $5, 'notes', '{"Try a carousel"}', 'claude', $6)`,
+        [OWNER, reviewed, scores, total, verdict, at],
+      );
+    await verdict(
+      7,
+      'bank',
+      '{"forwardable":1,"fills_gap":1,"doable":2,"original":2,"hook":1}',
+      '2026-10-02T11:00:00Z',
+    );
+    await verdict(
+      11,
+      'go',
+      '{"forwardable":3,"fills_gap":2,"doable":2,"original":2,"hook":2}',
+      '2026-10-04T11:00:00Z',
+    );
+
+    const [onlyReviewed, ...rest] = await call(c, 'list_ideas', { status: 'reviewed' });
+    expect(rest).toEqual([]);
+    expect(onlyReviewed).toMatchObject({
+      id: reviewed,
+      text: 'Exam week POV',
+      status: 'reviewed',
+      latestVerdict: { verdict: 'go', total: 11, alternatives: ['Try a carousel'], by: 'claude' },
+    });
+
+    const newestTwo = await call(c, 'list_ideas', { limit: 2 });
+    expect(
+      newestTwo.map((i: { text: string; latestVerdict: unknown }) => [i.text, i.latestVerdict]),
+    ).toEqual([
+      ['Thrift haul', null],
+      ['Exam week POV', expect.objectContaining({ verdict: 'go' })],
+    ]);
+  });
+});

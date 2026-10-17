@@ -31,6 +31,18 @@ const dayRange = (from: unknown, to: unknown, timeZone: string) => [
 
 /** Tool handlers by name; each runs inside one owner transaction (see createServer). */
 export const HANDLERS: Record<string, Handler> = {
+  list_ideas: async ({ status, limit }, { tx, settings }) => {
+    const rows = await tx.query(
+      `select i.*, (select to_jsonb(v) - 'owner_id' - 'updated_at' - 'idea_id' from public.idea_verdicts v
+                     where v.idea_id = i.id order by v.created_at desc limit 1) as latest_verdict
+         from public.ideas i
+        where $1::public.idea_status is null or i.status = $1
+        order by i.created_at desc limit $2`,
+      [status ?? null, limit ?? 20],
+    );
+    return rows.map((row) => output(row, settings.timezone));
+  },
+
   check_balance: async ({ from, to, hypothetical }, { tx, settings }) => {
     const [start, end] = dayRange(from, to, settings.timezone);
     return checkBalance(
