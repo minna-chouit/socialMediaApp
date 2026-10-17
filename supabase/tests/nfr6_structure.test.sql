@@ -24,14 +24,16 @@ select has_role('cadence_mcp', 'NFR-6: the cadence_mcp role exists');
 select is_empty(
   $$ select t.tablename::text from pg_tables t
      where t.schemaname = 'public' and (
+       -- change_log is insert-only (FR-3), so it needs no UPDATE.
        (select count(distinct g.privilege_type) from information_schema.role_table_grants g
         where g.table_schema = 'public' and g.table_name = t.tablename and g.grantee = 'cadence_mcp'
-          and g.privilege_type in ('SELECT', 'INSERT', 'UPDATE')) < 3
+          and g.privilege_type in ('SELECT', 'INSERT', 'UPDATE'))
+         < case when t.tablename = 'change_log' then 2 else 3 end
        or exists (select 1 from information_schema.role_table_grants g
         where g.table_schema = 'public' and g.table_name = t.tablename and g.grantee = 'cadence_mcp'
           and g.privilege_type in ('DELETE', 'TRUNCATE'))
      ) $$,
-  'NFR-6: cadence_mcp has SELECT, INSERT and UPDATE but no DELETE on every table'
+  'NFR-6: cadence_mcp has SELECT, INSERT and UPDATE (change_log: no UPDATE) but no DELETE on every table'
 );
 
 select is_empty(
