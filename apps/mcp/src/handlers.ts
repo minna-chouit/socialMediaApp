@@ -162,7 +162,9 @@ export async function enforceWriteLimit(tx: Tx) {
       where actor = 'claude' and at > now() - interval '1 hour'`,
   );
   if (writes >= WRITES_PER_HOUR) {
-    throw new ToolError(`Write limit reached: ${WRITES_PER_HOUR} writes per hour. Try again later.`);
+    throw new ToolError(
+      `Write limit reached: ${WRITES_PER_HOUR} writes per hour. Try again later.`,
+    );
   }
 }
 

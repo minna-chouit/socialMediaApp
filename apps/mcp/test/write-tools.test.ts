@@ -371,7 +371,9 @@ describe('resolve_trigger', () => {
 describe('FR-28: write rate limit', () => {
   it('FR-28: write tools stop at 60 per hour with a clear error; reads still work', async () => {
     for (let i = 0; i < 60; i++) {
-      expect((await call(c, 'create_idea', { text: `Idea ${i}`, reason: 'Batch' })).error).toBeUndefined();
+      expect(
+        (await call(c, 'create_idea', { text: `Idea ${i}`, reason: 'Batch' })).error,
+      ).toBeUndefined();
     }
     expect(await call(c, 'create_idea', { text: 'One too many', reason: 'Batch' })).toEqual({
       error: 'Write limit reached: 60 writes per hour. Try again later.',
