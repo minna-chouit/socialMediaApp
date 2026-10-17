@@ -1,10 +1,11 @@
 // The owner's web app API (FR-6, FR-7, FR-9 basics): one POST endpoint taking { action, args }.
 // Runs as the owner (role authenticated), so change_log records actor = owner and stage moves are
 // allowed, within core's canMove rules.
-import { canMove, markPosted, planningWeek, STAGES, type Stage } from '@cadence/core';
+import { canMove, checkBalance, markPosted, planningWeek, STAGES, type Stage } from '@cadence/core';
 import { timingSafeEqual } from 'node:crypto';
 import type { IncomingMessage, ServerResponse } from 'node:http';
-import { coreSettings } from './domain';
+import { Temporal } from 'temporal-polyfill';
+import { coreSettings, loadPosts } from './domain';
 import {
   applyPatch,
   HANDLERS,
@@ -13,7 +14,6 @@ import {
   readPost,
   ToolError,
   VARIANT_PATCH,
-  weekWarnings,
   type Context,
 } from './handlers';
 import { output } from './rows';
@@ -40,10 +40,21 @@ export const APP_ACTIONS: Record<string, Action> = {
     const ids = await ctx.tx.query<{ id: string }>(
       "select id from public.posts where status = 'proposed' order by go_live_at",
     );
+    const tz = ctx.settings.timezone;
+    const all = await loadPosts(ctx.tx);
     return Promise.all(
       ids.map(async ({ id }) => {
-        const post = await readPost(ctx.tx, id, ctx.settings.timezone);
-        return { post, warnings: await weekWarnings(ctx.tx, post.goLiveAt, ctx.settings) };
+        const post = await readPost(ctx.tx, id, tz);
+        // FR-7: the week as it would be if this proposal were approved.
+        const week = planningWeek(Temporal.Instant.from(String(post.goLiveAt)), tz);
+        const ifApproved = all.find((p) => p.id === id);
+        const warnings = checkBalance(
+          all,
+          { from: week.start, to: week.end },
+          coreSettings(ctx.settings),
+          ifApproved,
+        );
+        return { post, warnings };
       }),
     );
   },

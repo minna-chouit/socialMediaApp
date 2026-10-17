@@ -261,7 +261,7 @@
               <div class="row"><strong>${esc(post.title)}</strong><span class="pill">${esc(post.pillar)}</span></div>
               <p class="muted">${esc(when(post.goLiveAt))}${post.notes ? ` · ${esc(post.notes)}` : ''}</p>
               ${variants(post)}
-              ${warnings(w.filter((x) => !x.postId || x.postId === post.id))}
+              <details style="margin:8px 0"><summary class="muted">If approved: ${w.length} balance warning${w.length === 1 ? '' : 's'}</summary>${warnings(w)}</details>
               <div class="row">
                 <button class="act primary" data-approve="${post.id}">Approve</button>
                 <button class="act" data-edit="${post.id}">Edit</button>

@@ -38,7 +38,12 @@ describe('owner web app', () => {
     await seedPost(pg, { title: 'Already approved', goLiveAt: '2026-10-22T17:00:00Z' });
     const inbox = await app('inbox');
     expect(inbox.map((i: any) => i.post.id)).toEqual([postId]);
-    expect(inbox[0].warnings).toContainEqual(expect.objectContaining({ rule: 'R4' }));
+    // Judged as if approved: the proposal's own Instagram reel counts, so only the others are missing.
+    const r4 = inbox[0].warnings.filter((w: any) => w.rule === 'R4').map((w: any) => w.message);
+    expect(r4).toEqual([
+      'No tiktok post in the week of 2026-10-17',
+      'No linkedin post in the week of 2026-10-17',
+    ]);
   });
 
   it('FR-7: approve moves a proposed post to approved, logged as the owner', async () => {
