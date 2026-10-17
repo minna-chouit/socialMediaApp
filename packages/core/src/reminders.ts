@@ -83,6 +83,8 @@ const WEEKLY: {
   { code: 'BATCH_NIGHT', weekday: 5, time: (s) => s.batchTime, mirror: true },
   { code: 'SHOT_LIST', weekday: 7, time: () => '18:00', mirror: false },
   { code: 'SCHEDULE', weekday: 5, time: () => '22:00', mirror: false },
+  { code: 'LI_CAPTURE', weekday: 1, time: () => '18:00', mirror: false },
+  { code: 'LI_FALLBACK', weekday: 2, time: () => '21:00', mirror: false },
   { code: 'MONTHLY_REVIEW', weekday: 6, time: () => '11:00', mirror: true, firstInMonth: true },
 ];
 
@@ -215,6 +217,12 @@ export function shouldSend(reminder: Reminder, data: ReminderData, settings: Set
       const variant = findVariant(data, reminder.entityId);
       return !!variant && !variant.postedAt;
     }
+    case 'LI_FALLBACK':
+      return !data.captureItems.some(
+        (item) =>
+          item.tags.includes('linkedin-capture') &&
+          Temporal.Instant.compare(item.createdAt, week.start) >= 0,
+      );
     case 'CHECKIN': {
       const checkin = data.checkins.find((c) => checkinId(c) === reminder.entityId);
       return !!checkin && !checkin.doneAt;

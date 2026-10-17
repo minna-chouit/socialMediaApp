@@ -372,3 +372,47 @@ describe('FR-13: per-post reminder settings', () => {
     ]);
   });
 });
+
+describe('FR-23: LinkedIn capture prompts', () => {
+  const capture = (iso: string, tags = ['linkedin-capture']) => ({ tags, createdAt: at(iso) });
+
+  it('FR-23: LI_CAPTURE every Monday 18:00', () => {
+    expect(ofCode(remind(), 'LI_CAPTURE').map((r) => [r.key, r.at.toString()])).toEqual([
+      ['LI_CAPTURE::2026-10-19', '2026-10-19T17:00:00Z'],
+    ]);
+  });
+
+  it('FR-23: LI_FALLBACK on Tuesday 21:00 is cancelled if a linkedin-capture item exists since Saturday 00:00', () => {
+    expect(sends('LI_FALLBACK', {})).toBe(true);
+    expect(sends('LI_FALLBACK', { captureItems: [capture('2026-10-16T23:00:00Z')] })).toBe(false);
+    expect(sends('LI_FALLBACK', { captureItems: [capture('2026-10-19T12:00:00Z', ['gym'])] })).toBe(
+      true,
+    );
+  });
+
+  it('FR-23: a capture from before Saturday does not cancel the fallback', () => {
+    expect(sends('LI_FALLBACK', { captureItems: [capture('2026-10-16T22:59:00Z')] })).toBe(true);
+  });
+});
+
+describe('LI_CAPTURE and LI_FALLBACK', () => {
+  it('LI_CAPTURE: Monday 18:00, not urgent, not mirrored, always sent', () => {
+    expect(ofCode(remind(), 'LI_CAPTURE').map(summary)[0]).toMatchObject({
+      urgent: false,
+      mirror: false,
+    });
+    expect(sends('LI_CAPTURE', {})).toBe(true);
+  });
+
+  it('LI_FALLBACK: Tuesday 21:00, not urgent, not mirrored', () => {
+    expect(ofCode(remind(), 'LI_FALLBACK').map(summary)).toEqual([
+      {
+        key: 'LI_FALLBACK::2026-10-20',
+        at: '2026-10-20T20:00:00Z',
+        sendAt: '2026-10-20T20:00:00Z',
+        urgent: false,
+        mirror: false,
+      },
+    ]);
+  });
+});
