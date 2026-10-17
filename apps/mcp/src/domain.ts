@@ -1,5 +1,5 @@
 // Database rows ↔ @cadence/core shapes, so tools reuse core's rules instead of re-implementing them.
-import type { Post, Settings, Variant } from '@cadence/core';
+import type { Checkin, Post, Settings, Variant } from '@cadence/core';
 import { Temporal } from 'temporal-polyfill';
 import type { Tx } from './db';
 
@@ -70,4 +70,26 @@ export function inputPost(input: Json, id: string): Post {
       scheduledAt: instant(v.scheduledAt),
     })),
   };
+}
+
+const metric = (value: unknown) => (value === null || value === undefined ? null : Number(value));
+
+export async function loadCheckins(tx: Tx): Promise<Checkin[]> {
+  const rows = await tx.query<{ checkin: Json }>(
+    'select to_jsonb(c) as checkin from public.checkins c',
+  );
+  return rows.map(({ checkin: c }) => ({
+    variantId: String(c.variant_id),
+    dayOffset: Number(c.day_offset),
+    dueAt: instant(c.due_at)!,
+    doneAt: instant(c.done_at),
+    views: metric(c.views),
+    reach: metric(c.reach),
+    likes: metric(c.likes),
+    comments: metric(c.comments),
+    saves: metric(c.saves),
+    shares: metric(c.shares),
+    follows: metric(c.follows),
+    avgWatchSeconds: metric(c.avg_watch_seconds),
+  }));
 }

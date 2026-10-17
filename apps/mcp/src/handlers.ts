@@ -1,7 +1,7 @@
 import { Temporal } from 'temporal-polyfill';
-import { checkBalance, planningWeek } from '@cadence/core';
+import { checkBalance, metricsSummary, planningWeek } from '@cadence/core';
 import type { Tx } from './db';
-import { coreSettings, inputPost, loadPosts } from './domain';
+import { coreSettings, inputPost, loadCheckins, loadPosts } from './domain';
 import { output } from './rows';
 import type { ServerDeps } from './server';
 
@@ -37,6 +37,14 @@ const dayRange = (from: unknown, to: unknown, timeZone: string) => [
 
 /** Tool handlers by name; each runs inside one owner transaction (see createServer). */
 export const HANDLERS: Record<string, Handler> = {
+  get_metrics_summary: async ({ month }, { tx, settings }) =>
+    metricsSummary(
+      await loadPosts(tx),
+      await loadCheckins(tx),
+      String(month),
+      coreSettings(settings),
+    ),
+
   get_follower_history: async ({ platform, weeks }, { tx, settings, deps }) => {
     const tz = settings.timezone;
     const thisWeek = planningWeek(deps.clock.now(), tz).start.toZonedDateTimeISO(tz);

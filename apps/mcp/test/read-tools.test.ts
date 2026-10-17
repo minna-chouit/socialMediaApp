@@ -308,3 +308,25 @@ describe('get_follower_history', () => {
     ).toHaveLength(3);
   });
 });
+
+describe('get_metrics_summary', () => {
+  it('get_metrics_summary: the tool summarises stored posts and day-7 check-ins for a month', async () => {
+    const { variantIds } = await seedPost(
+      c.pg,
+      { title: 'Summary reel', pillar: 'pov_journey', goLiveAt: '2026-08-03T17:00:00Z' },
+      [{ platform: 'instagram', format: 'reel', postedAt: '2026-08-03T17:02:00Z' }],
+    );
+    await c.pg.query(
+      `insert into public.checkins (owner_id, variant_id, day_offset, due_at, views, saves)
+       values ($1, $2, 7, '2026-08-10T19:00:00Z', 2000, 40)`,
+      [OWNER, variantIds[0]],
+    );
+    const summary = await call(c, 'get_metrics_summary', { month: '2026-08' });
+    expect(summary.month).toBe('2026-08');
+    expect(summary.byPlatform.instagram).toMatchObject({
+      variants: 1,
+      totals: { views: 2000, saves: 40, likes: null },
+    });
+    expect(summary.byPillar.pov_journey.means.views).toBe(2000);
+  });
+});
