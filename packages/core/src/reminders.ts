@@ -4,6 +4,7 @@ import type { Milestone } from './milestones';
 import { goesLiveAt, type Post, type Settings } from './model';
 import { isApprovedOrLater, STAGES } from './stages';
 import { isWithin, planningWeek } from './time';
+import type { TriggerRecord } from './triggers';
 
 /** Moves a non-urgent reminder inside quiet hours [quietStart, quietEnd) to the end of quiet hours (FR-13). */
 export function applyQuietHours(
@@ -63,6 +64,7 @@ export interface ReminderData {
   /** Ideas and media, for the linkedin-capture tag. */
   captureItems: { tags: string[]; createdAt: Temporal.Instant }[];
   milestones: Milestone[];
+  triggers: (TriggerRecord & { id: string; firedAt: Temporal.Instant })[];
 }
 
 export interface Window {
@@ -154,26 +156,20 @@ function perVariant(data: ReminderData, settings: Settings): Spec[] {
 // A check-in has no id of its own in core; (variant, day offset) is unique.
 const checkinId = (c: Checkin) => `${c.variantId}:d${c.dayOffset}`;
 
-function perCheckin(data: ReminderData): Spec[] {
-  return data.checkins.map((c) => ({
-    code: 'CHECKIN',
-    entityType: 'checkin',
-    entityId: checkinId(c),
-    at: c.dueAt,
-    urgent: false,
-    mirror: false,
-  }));
-}
-
-function perMilestone(data: ReminderData): Spec[] {
-  return data.milestones.map((m) => ({
-    code: 'MILESTONE',
-    entityType: 'milestone',
-    entityId: m.id,
-    at: m.dueAt,
-    urgent: false,
-    mirror: true,
-  }));
+// Reminders tied to one stored record each: check-ins, milestones and fired triggers.
+function perRecord(data: ReminderData): Spec[] {
+  const spec = (
+    code: ReminderCode,
+    entityType: Reminder['entityType'],
+    entityId: string,
+    at: Temporal.Instant,
+    mirror = false,
+  ): Spec => ({ code, entityType, entityId, at, urgent: false, mirror });
+  return [
+    ...data.checkins.map((c) => spec('CHECKIN', 'checkin', checkinId(c), c.dueAt)),
+    ...data.milestones.map((m) => spec('MILESTONE', 'milestone', m.id, m.dueAt, true)),
+    ...data.triggers.map((t) => spec('TRIGGER', 'trigger', t.id, t.firedAt)),
+  ];
 }
 
 const findVariant = (data: ReminderData, id: string | null) =>
@@ -189,8 +185,7 @@ export function generateReminders(
   return [
     ...weekly(localDates(window, timeZone), settings),
     ...perVariant(data, settings),
-    ...perCheckin(data),
-    ...perMilestone(data),
+    ...perRecord(data),
   ]
     .filter((spec) => isWithin(spec.at, window.from, window.to))
     .map((spec) => ({
@@ -206,6 +201,11 @@ export function shouldSend(reminder: Reminder, data: ReminderData, settings: Set
   const goesLiveThisWeek = (post: Post) =>
     post.variants.some((v) => isWithin(goesLiveAt(post, v), week.start, week.end));
   switch (reminder.code) {
+    case 'WEEKLY_REPORT':
+    case 'BATCH_NIGHT':
+    case 'LI_CAPTURE':
+    case 'MONTHLY_REVIEW':
+      return true;
     case 'SHOT_LIST':
       return data.posts.some(
         (p) => STAGES.indexOf(p.status) <= STAGES.indexOf('capture') && goesLiveThisWeek(p),
@@ -241,6 +241,10 @@ export function shouldSend(reminder: Reminder, data: ReminderData, settings: Set
       const milestone = data.milestones.find((m) => m.id === reminder.entityId);
       return !!milestone && milestone.outcome === null;
     }
+    case 'TRIGGER': {
+      const trigger = data.triggers.find((t) => t.id === reminder.entityId);
+      return !!trigger && !trigger.resolvedAt;
+    }
     case 'CHECKIN': {
       const checkin = data.checkins.find((c) => checkinId(c) === reminder.entityId);
       return !!checkin && !checkin.doneAt;
@@ -248,7 +252,5 @@ export function shouldSend(reminder: Reminder, data: ReminderData, settings: Set
     case 'REPLY_START':
     case 'REPLY_END':
       return !!findVariant(data, reminder.entityId)?.postedAt;
-    default:
-      return true;
   }
 }

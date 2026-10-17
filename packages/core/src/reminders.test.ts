@@ -39,7 +39,13 @@ describe('FR-13: quiet hours', () => {
   });
 });
 
-const EMPTY: ReminderData = { posts: [], checkins: [], captureItems: [], milestones: [] };
+const EMPTY: ReminderData = {
+  posts: [],
+  checkins: [],
+  captureItems: [],
+  milestones: [],
+  triggers: [],
+};
 const remind = (fields: Partial<ReminderData> = {}, settings = S, window = WEEK) =>
   generateReminders({ ...EMPTY, ...fields }, settings, window);
 const ofCode = (reminders: Reminder[], code: ReminderCode) =>
@@ -444,5 +450,38 @@ describe('MILESTONE', () => {
     const done = milestones.map((m) => ({ ...m, outcome: 'All set up' }));
     const [reminder] = ofCode(remind({ milestones }), 'MILESTONE');
     expect(shouldSend(reminder, { ...EMPTY, milestones: done }, S)).toBe(false);
+  });
+});
+
+describe('TRIGGER', () => {
+  const fired = {
+    id: 'tr-1',
+    rule: 'T2',
+    platform: null,
+    firedAt: at('2026-10-21T07:00:00Z'),
+  } as const;
+
+  it('TRIGGER: when a trigger fires, not urgent, not mirrored', () => {
+    expect(
+      ofCode(remind({ triggers: [fired] }), 'TRIGGER').map((r) => [r.entityType, summary(r)]),
+    ).toEqual([
+      [
+        'trigger',
+        {
+          key: 'TRIGGER:tr-1:2026-10-21',
+          at: '2026-10-21T07:00:00Z',
+          sendAt: '2026-10-21T07:00:00Z',
+          urgent: false,
+          mirror: false,
+        },
+      ],
+    ]);
+  });
+
+  it('TRIGGER: cancelled once the trigger is resolved', () => {
+    expect(sends('TRIGGER', { triggers: [fired] })).toBe(true);
+    const [reminder] = ofCode(remind({ triggers: [fired] }), 'TRIGGER');
+    const resolved = { ...fired, resolvedAt: at('2026-10-21T09:00:00Z') };
+    expect(shouldSend(reminder, { ...EMPTY, triggers: [resolved] }, S)).toBe(false);
   });
 });
