@@ -33,7 +33,11 @@ jobs:
           node-version: 24
           cache: pnpm
       - run: pnpm install --frozen-lockfile
-      - run: pnpm exec supabase db start
+      - name: Start database
+        shell: bash
+        run: |
+          set -o pipefail
+          pnpm exec supabase db start 2>&1 | tee db.out
       - name: pgTAP
         shell: bash
         run: |
@@ -43,4 +47,4 @@ jobs:
       - name: Publish pgTAP output
         if: always()
         shell: bash
-        run: echo "::notice title=pgTAP output::$(tail -c 60000 pgtap.out | sed 's/%/%25/g' | awk '{printf "%s%%0A", $0}')"
+        run: echo "::notice title=pgTAP output::$(cat db.out pgtap.out 2>/dev/null | grep -v -E 'Pulling|Waiting|Verifying|Download|Pull complete' | tail -c 60000 | sed 's/%/%25/g' | awk '{printf "%s%%0A", $0}')"
