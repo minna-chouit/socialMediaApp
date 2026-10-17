@@ -330,3 +330,40 @@ describe('create_trigger', () => {
     expect((await call(c, 'create_trigger', { ...t4, rule: 'T1' })).error).toMatch(/rule/);
   });
 });
+
+describe('resolve_trigger', () => {
+  const open = async () =>
+    (
+      await call(c, 'create_trigger', {
+        rule: 'T4',
+        platform: 'instagram',
+        note: 'Reels capped at 90s',
+        reason: 'Platform announcement',
+      })
+    ).id as string;
+
+  it('resolve_trigger: sets resolved_at and resolved_by claude, and keeps the resolution note', async () => {
+    const id = await open();
+    c.clock.set(c.clock.now().add({ hours: 2 }));
+    const trigger = await call(c, 'resolve_trigger', {
+      id,
+      note: 'Kept reels under 60s',
+      reason: 'Reviewed with the owner',
+    });
+    expect(trigger).toMatchObject({
+      id,
+      resolvedAt: '2026-10-21T14:00:00+01:00',
+      resolvedBy: 'claude',
+      note: 'Reels capped at 90s\nResolved: Kept reels under 60s',
+    });
+    expect((await changeLog(id)).map((row) => row.field)).toEqual(['created', 'resolved_at']);
+  });
+
+  it('resolve_trigger: a resolved trigger cannot be resolved again', async () => {
+    const id = await open();
+    await call(c, 'resolve_trigger', { id, note: 'Done', reason: 'Done' });
+    expect(await call(c, 'resolve_trigger', { id, note: 'Again', reason: 'Again' })).toEqual({
+      error: `Trigger ${id} is already resolved`,
+    });
+  });
+});

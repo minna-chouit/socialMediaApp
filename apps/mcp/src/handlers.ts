@@ -151,6 +151,23 @@ async function applyPatch(tx: Tx, table: string, id: unknown, patch: Row, column
 
 /** Tool handlers by name; each runs inside one owner transaction (see createServer). */
 export const HANDLERS: Record<string, Handler> = {
+  resolve_trigger: async ({ id, note, reason }, { tx, settings, deps }) => {
+    const [before] = await tx.query('select note, resolved_at from public.triggers where id = $1', [
+      id,
+    ]);
+    if (!before) throw new ToolError(`No trigger with id ${id}`);
+    if (before.resolved_at) throw new ToolError(`Trigger ${id} is already resolved`);
+    const resolvedAt = deps.clock.now().toString();
+    const [trigger] = await tx.query(
+      `update public.triggers set resolved_at = $2, resolved_by = 'claude',
+         note = coalesce(note || E'\n', '') || 'Resolved: ' || $3
+       where id = $1 returning *`,
+      [id, resolvedAt, note],
+    );
+    await logWrite(tx, { type: 'trigger', id }, 'resolved_at', { new: resolvedAt }, reason);
+    return output(trigger, settings.timezone);
+  },
+
   create_trigger: async ({ rule, platform, note, reason }, { tx, settings, deps }) => {
     const open = await tx.query(
       'select id from public.triggers where rule = $1 and platform = $2 and resolved_at is null',
