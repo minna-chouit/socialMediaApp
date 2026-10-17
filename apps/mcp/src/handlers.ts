@@ -151,6 +151,26 @@ async function applyPatch(tx: Tx, table: string, id: unknown, patch: Row, column
 
 /** Tool handlers by name; each runs inside one owner transaction (see createServer). */
 export const HANDLERS: Record<string, Handler> = {
+  create_trigger: async ({ rule, platform, note, reason }, { tx, settings, deps }) => {
+    const open = await tx.query(
+      'select id from public.triggers where rule = $1 and platform = $2 and resolved_at is null',
+      [rule, platform],
+    );
+    // The FR-22 unique index enforces this too; checking first gives Claude a readable message.
+    if (open.length) {
+      throw new ToolError(
+        `There is already an unresolved ${rule} trigger for ${platform}; resolve it first`,
+      );
+    }
+    const [trigger] = await tx.query(
+      'insert into public.triggers (rule, platform, note, fired_at) values ($1, $2, $3, $4) returning *',
+      [rule, platform, note, deps.clock.now().toString()],
+    );
+    const created = output(trigger, settings.timezone);
+    await logWrite(tx, { type: 'trigger', id: trigger.id }, 'created', { new: created }, reason);
+    return created;
+  },
+
   update_milestone: async ({ id, outcome, decision, reason }, { tx, settings }) => {
     const [before] = await tx.query(
       'select outcome, decision from public.milestones where id = $1',

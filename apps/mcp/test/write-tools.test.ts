@@ -296,3 +296,37 @@ describe('update_milestone', () => {
     });
   });
 });
+
+describe('create_trigger', () => {
+  const t4 = {
+    rule: 'T4',
+    platform: 'tiktok',
+    note: 'TikTok now favours 60s+ videos',
+    reason: 'Seen in the creator newsletter',
+  };
+
+  it('create_trigger: a T4 trigger with platform and note, fired now and logged', async () => {
+    const trigger = await call(c, 'create_trigger', t4);
+    expect(trigger).toMatchObject({
+      rule: 'T4',
+      platform: 'tiktok',
+      note: 'TikTok now favours 60s+ videos',
+      firedAt: '2026-10-21T12:00:00+01:00', // the test clock
+      resolvedAt: null,
+    });
+    expect((await changeLog(trigger.id)).map((row) => [row.actor, row.field, row.reason])).toEqual([
+      ['claude', 'created', 'Seen in the creator newsletter'],
+    ]);
+  });
+
+  it('create_trigger: only one unresolved T4 per platform, with a clear message', async () => {
+    await call(c, 'create_trigger', t4);
+    expect(await call(c, 'create_trigger', t4)).toEqual({
+      error: 'There is already an unresolved T4 trigger for tiktok; resolve it first',
+    });
+  });
+
+  it('create_trigger: only T4 can be created', async () => {
+    expect((await call(c, 'create_trigger', { ...t4, rule: 'T1' })).error).toMatch(/rule/);
+  });
+});
