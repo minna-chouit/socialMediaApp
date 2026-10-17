@@ -37,6 +37,14 @@ const dayRange = (from: unknown, to: unknown, timeZone: string) => [
 
 /** Tool handlers by name; each runs inside one owner transaction (see createServer). */
 export const HANDLERS: Record<string, Handler> = {
+  list_milestones: async ({ unresolvedOnly }, { tx, settings }) => {
+    const rows = await tx.query(
+      'select * from public.milestones where not $1 or outcome is null order by due_at',
+      [Boolean(unresolvedOnly)],
+    );
+    return rows.map((row) => output(row, settings.timezone));
+  },
+
   get_metrics_summary: async ({ month }, { tx, settings }) =>
     metricsSummary(
       await loadPosts(tx),

@@ -330,3 +330,28 @@ describe('get_metrics_summary', () => {
     expect(summary.byPillar.pov_journey.means.views).toBe(2000);
   });
 });
+
+describe('list_milestones', () => {
+  it('list_milestones: by due date; unresolvedOnly leaves out milestones with an outcome', async () => {
+    const milestone = (week: number, due: string, outcome: string | null) =>
+      c.pg.query(
+        `insert into public.milestones (owner_id, kind, week, title, checks, due_at, outcome)
+         values ($1, 'checkpoint', $2, $3, '{"A check"}', $4, $5)`,
+        [OWNER, week, `Week ${week}`, due, outcome],
+      );
+    await milestone(2, '2026-10-30T19:00:00Z', null);
+    await milestone(1, '2026-10-23T19:00:00Z', 'All set up');
+    const all = await call(c, 'list_milestones', {});
+    expect(all.map((m: { week: number }) => m.week)).toEqual([1, 2]);
+    expect(all[0]).toMatchObject({
+      kind: 'checkpoint',
+      title: 'Week 1',
+      checks: ['A check'],
+      dueAt: '2026-10-23T20:00:00+01:00',
+      outcome: 'All set up',
+      decision: null,
+    });
+    const open = await call(c, 'list_milestones', { unresolvedOnly: true });
+    expect(open.map((m: { week: number }) => m.week)).toEqual([2]);
+  });
+});
