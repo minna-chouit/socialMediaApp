@@ -9,7 +9,7 @@ export interface ServerDeps {
   ownerId: string;
   clock: Clock;
   /** A short-lived signed URL for a media bank file (Supabase Storage in production). */
-  signUrl: (storagePath: string) => Promise<string>;
+  signUrl: (storagePath: string) => Promise<string | null>;
 }
 
 // Section 6.2 rule 6: what Claude needs to know to use the tools well.

@@ -1,0 +1,6 @@
+{
+  "$schema": "https://openapi.vercel.sh/vercel.json",
+  "buildCommand": "pnpm build",
+  "outputDirectory": "public",
+  "rewrites": [{ "source": "/mcp/:key", "destination": "/api/mcp?key=:key" }]
+}

@@ -2,7 +2,7 @@ import { defineConfig } from 'eslint/config';
 import tseslint from 'typescript-eslint';
 
 export default defineConfig(
-  { ignores: ['**/node_modules/**', 'coverage/**', '**/dist/**'] },
+  { ignores: ['**/node_modules/**', 'coverage/**', '**/dist/**', 'apps/mcp/api/**'] },
   tseslint.configs.recommended,
   {
     rules: { '@typescript-eslint/no-unused-vars': ['error', { argsIgnorePattern: '^_' }] },

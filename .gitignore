@@ -2,3 +2,5 @@ node_modules/
 coverage/
 dist/
 .env*
+apps/mcp/api/
+.vercel/

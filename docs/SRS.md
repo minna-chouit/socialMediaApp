@@ -311,6 +311,9 @@ A remote MCP server over Streamable HTTP, written in TypeScript with the officia
 
 ### 6.3 Authentication
 
+> **Current build (agreed in M5):** the connector is reached at a secret URL (`/mcp/<MCP_SECRET>`, at least 32 characters, compared in constant time; anything else is a 404) instead of OAuth. Fine for a single owner who keeps the link private; rotate `MCP_SECRET` if it leaks. OAuth below remains the target. M6–M8 (app screens, notifications, weekly-loop UI) are deferred; until then the owner reviews proposals in the Supabase dashboard.
+
+
 - OAuth 2.1 with PKCE, supporting dynamic client registration; claude.ai also accepts a custom client ID and secret if needed.
 - Allowed redirect URIs: `https://claude.ai/api/mcp/auth_callback` and `https://claude.com/api/mcp/auth_callback`.
 - The authorize page signs in the owner with the same Supabase identity as the web app; nobody else can complete consent.

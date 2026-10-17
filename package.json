@@ -9,7 +9,7 @@
     "typecheck": "tsc",
     "lint": "eslint .",
     "format:check": "prettier --check .",
-    "trace": "node scripts/trace.ts M4",
+    "trace": "node scripts/trace.ts M5",
     "test:db": "supabase test db"
   },
   "devDependencies": {
