@@ -2,6 +2,7 @@ export * from './balance';
 export * from './checkins';
 export * from './ideas';
 export * from './milestones';
+export * from './metrics';
 export * from './model';
 export * from './reminders';
 export * from './report';
