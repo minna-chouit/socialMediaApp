@@ -113,3 +113,19 @@ describe('WEEKLY_REPORT', () => {
     ]);
   });
 });
+
+describe('BATCH_NIGHT', () => {
+  it('BATCH_NIGHT: Friday at batch time (default 20:15), not urgent, mirrored', () => {
+    expect(ofCode(remind(), 'BATCH_NIGHT').map(summary)).toEqual([
+      {
+        key: 'BATCH_NIGHT::2026-10-23',
+        at: '2026-10-23T19:15:00Z',
+        sendAt: '2026-10-23T19:15:00Z',
+        urgent: false,
+        mirror: true,
+      },
+    ]);
+    const later = { ...S, batchTime: '21:00' };
+    expect(ofCode(remind({}, later), 'BATCH_NIGHT')[0].at.toString()).toBe('2026-10-23T20:00:00Z');
+  });
+});

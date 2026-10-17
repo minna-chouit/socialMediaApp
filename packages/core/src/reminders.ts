@@ -75,7 +75,10 @@ const WEEKLY: {
   weekday: number;
   time: (s: Settings) => string;
   mirror: boolean;
-}[] = [{ code: 'WEEKLY_REPORT', weekday: 5, time: (s) => s.reportTime, mirror: true }];
+}[] = [
+  { code: 'WEEKLY_REPORT', weekday: 5, time: (s) => s.reportTime, mirror: true },
+  { code: 'BATCH_NIGHT', weekday: 5, time: (s) => s.batchTime, mirror: true },
+];
 
 const atLocal = (date: Temporal.PlainDate, time: string, timeZone: string) =>
   date.toZonedDateTime({ timeZone, plainTime: Temporal.PlainTime.from(time) }).toInstant();
