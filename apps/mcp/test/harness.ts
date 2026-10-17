@@ -63,3 +63,37 @@ export async function call(c: Connected, name: string, args: Record<string, unkn
   const text = result.content.map((part) => part.text).join('\n');
   return result.isError ? { error: text } : JSON.parse(text);
 }
+
+/** Inserts a post and its variants directly (as postgres), returning their ids. */
+export async function seedPost(
+  pg: PGlite,
+  post: { title: string; pillar?: string; status?: string; goLiveAt: string; topics?: string[] },
+  variants: { platform: string; format: string; scheduledAt?: string; postedAt?: string }[] = [
+    { platform: 'instagram', format: 'reel' },
+  ],
+) {
+  const [{ id }] = (
+    await pg.query<{ id: string }>(
+      `insert into public.posts (owner_id, title, pillar, status, go_live_at, topics)
+       values ($1, $2, $3, $4, $5, $6::public.topic[]) returning id`,
+      [
+        OWNER,
+        post.title,
+        post.pillar ?? 'life_style',
+        post.status ?? 'approved',
+        post.goLiveAt,
+        `{${(post.topics ?? []).join(',')}}`, // PGlite sends [] as "", so pass an array literal
+      ],
+    )
+  ).rows;
+  const variantIds: string[] = [];
+  for (const v of variants) {
+    const { rows } = await pg.query<{ id: string }>(
+      `insert into public.variants (owner_id, post_id, platform, format, scheduled_at, posted_at)
+       values ($1, $2, $3, $4, $5, $6) returning id`,
+      [OWNER, id, v.platform, v.format, v.scheduledAt ?? null, v.postedAt ?? null],
+    );
+    variantIds.push(rows[0].id);
+  }
+  return { postId: id, variantIds };
+}
