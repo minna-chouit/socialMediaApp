@@ -1,0 +1,7 @@
+# NFR-6 secret scanning: gitleaks' default rules, minus test fixtures that use fake secrets.
+[extend]
+useDefault = true
+
+[allowlist]
+description = "Contract-test fixtures use fake secrets"
+paths = ['''apps/mcp/test/''']

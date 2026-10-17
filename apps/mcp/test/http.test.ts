@@ -5,7 +5,7 @@ import { createHttpHandler } from '../src/http';
 import { createServer } from '../src/server';
 import { freshDatabase, NOW, OWNER, pgliteDb } from './harness';
 
-const SECRET = 'test-secret-0123456789abcdef0123456789abcdef';
+const SECRET = 'not-a-real-secret-'.padEnd(40, 'x'); // fake; the endpoint needs 32+ chars
 let http: Server;
 let base: string;
 
