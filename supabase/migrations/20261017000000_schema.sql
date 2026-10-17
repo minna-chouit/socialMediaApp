@@ -255,6 +255,8 @@ end $$;
 
 -- The MCP server's role: read and write, never delete (section 6.2 rule 1).
 create role cadence_mcp nologin;
+-- Lets postgres (not a superuser on Supabase) switch to it in tests and admin work.
+grant cadence_mcp to postgres;
 grant usage on schema public, auth to cadence_mcp;
 grant execute on function auth.uid() to cadence_mcp;
 
