@@ -33,6 +33,12 @@ export interface Settings {
   workOnPersonal: boolean;
   replyWindowMinutes: number;
   checkinOffsets: Record<Platform, number[]>;
+  /** Local times as HH:MM. */
+  reportTime: string;
+  batchTime: string;
+  quietStart: string;
+  quietEnd: string;
+  replyRemindersTikTok: boolean;
 }
 
 export const DEFAULT_SETTINGS: Settings = {
@@ -41,6 +47,11 @@ export const DEFAULT_SETTINGS: Settings = {
   workOnPersonal: false,
   replyWindowMinutes: 15,
   checkinOffsets: { instagram: [3, 7], tiktok: [3, 7, 14], linkedin: [3, 7] },
+  reportTime: '20:00',
+  batchTime: '20:15',
+  quietStart: '23:30',
+  quietEnd: '08:00',
+  replyRemindersTikTok: false,
 };
 
 /** When a variant goes live: its own schedule, else the post's go-live time. */
