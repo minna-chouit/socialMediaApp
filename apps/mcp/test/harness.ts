@@ -51,3 +51,15 @@ export async function connect() {
   await client.connect(clientTransport);
   return { client, pg, clock };
 }
+
+type Connected = Awaited<ReturnType<typeof connect>>;
+
+/** Calls a tool and returns its parsed JSON result, or `{ error }` when the tool reports one. */
+export async function call(c: Connected, name: string, args: Record<string, unknown> = {}) {
+  const result = (await c.client.callTool({ name, arguments: args })) as {
+    isError?: boolean;
+    content: { type: string; text: string }[];
+  };
+  const text = result.content.map((part) => part.text).join('\n');
+  return result.isError ? { error: text } : JSON.parse(text);
+}

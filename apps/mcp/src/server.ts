@@ -1,7 +1,8 @@
 import { ideaReviewInput, PILLARS, PLATFORMS, FORMATS, TOPICS, type Clock } from '@cadence/core';
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { z } from 'zod';
-import type { Db } from './db';
+import type { Db, Tx } from './db';
+import { output } from './rows';
 
 export interface ServerDeps {
   db: Db;
@@ -58,6 +59,22 @@ const postInput = z.object({
   isLeftovers: z.boolean().optional(),
   notes: z.string().optional(),
 });
+
+type Row = Record<string, unknown>;
+
+/** What a handler gets: the owner's transaction, settings and the current time. */
+interface Context {
+  tx: Tx;
+  settings: Row & { timezone: string };
+  deps: ServerDeps;
+}
+
+type Handler = (args: Record<string, unknown>, ctx: Context) => Promise<unknown>;
+
+const HANDLERS: Record<string, Handler> = {
+  get_settings: async (_args, { settings }) =>
+    output(settings, settings.timezone, ['id', 'owner_id', 'created_at', 'updated_at']),
+};
 
 /** Section 6.1. `read` tools never write. */
 const TOOLS: { name: string; read: boolean; description: string; input: z.ZodRawShape }[] = [
@@ -201,7 +218,15 @@ const TOOLS: { name: string; read: boolean; description: string; input: z.ZodRaw
   },
 ];
 
-export function createServer(_deps: ServerDeps): McpServer {
+const ok = (data: unknown) => ({
+  content: [{ type: 'text' as const, text: JSON.stringify(data, null, 2) }],
+});
+const fail = (message: string) => ({
+  isError: true,
+  content: [{ type: 'text' as const, text: message }],
+});
+
+export function createServer(deps: ServerDeps): McpServer {
   const server = new McpServer(
     { name: 'cadence', version: '0.1.0' },
     { instructions: INSTRUCTIONS },
@@ -216,11 +241,18 @@ export function createServer(_deps: ServerDeps): McpServer {
           ? { readOnlyHint: true }
           : { readOnlyHint: false, destructiveHint: false, idempotentHint: false },
       },
-      // Scaffolding: each tool gets its handler in its own red/green cycle.
-      async () => ({
-        isError: true,
-        content: [{ type: 'text', text: `${tool.name} is not implemented yet` }],
-      }),
+      async (args: Record<string, unknown>) => {
+        const handler = HANDLERS[tool.name];
+        // Scaffolding: each tool gets its handler in its own red/green cycle.
+        if (!handler) return fail(`${tool.name} is not implemented yet`);
+        const reason = typeof args.reason === 'string' ? args.reason : null;
+        return ok(
+          await deps.db(deps.ownerId, reason, async (tx) => {
+            const [settings] = await tx.query<Context['settings']>('select * from public.settings');
+            return handler(args, { tx, settings, deps });
+          }),
+        );
+      },
     );
   }
   return server;
