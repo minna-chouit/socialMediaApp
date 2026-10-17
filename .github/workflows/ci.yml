@@ -34,4 +34,13 @@ jobs:
           cache: pnpm
       - run: pnpm install --frozen-lockfile
       - run: pnpm exec supabase db start
-      - run: pnpm test:db
+      - name: pgTAP
+        shell: bash
+        run: |
+          set -o pipefail
+          pnpm test:db 2>&1 | tee pgtap.out
+      # Logs need a GitHub login; annotations do not, so the output is readable from the API.
+      - name: Publish pgTAP output
+        if: always()
+        shell: bash
+        run: echo "::notice title=pgTAP output::$(tail -c 60000 pgtap.out | sed 's/%/%25/g' | awk '{printf "%s%%0A", $0}')"
