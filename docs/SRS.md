@@ -166,6 +166,7 @@ All times local. A reminder's key is code + entity ID + date, so regenerating is
 | MILESTONE | Milestone dueAt, 20:00 | Milestone has no outcome | No | Yes |
 | MONTHLY_REVIEW | First Saturday of the month, 11:00 | Always | No | Yes |
 | TRIGGER | When a trigger fires | Trigger unresolved | No | No |
+| TASK | Task dueAt | Task not done and not deleted | No | No |
 
 ### 4.3 Strategy triggers
 
@@ -270,6 +271,7 @@ Postgres (Supabase). Every table has `id uuid pk`, `owner_id uuid` (row-level se
 | triggers | rule (T1–T4), platform, params jsonb, note, fired_at, resolved_at, resolved_by actor | one unresolved per (rule, platform) |
 | reminders | code, key text, entity_type, entity_id text, send_at, sent_at, cancelled_at, urgent bool, calendar_event_id | unique (owner, key) |
 | push_subscriptions | endpoint text, keys jsonb, device_label | unique (endpoint) |
+| tasks | title text, type (shoot, edit, write, post, log, other), due_at, done bool, notes text, post_id → posts (optional), created_by actor, completed_at, cancelled_at | created_by = claude for anything cadence_mcp inserts; completed_at set when done; cancelled_at hides a task Claude deleted. Tasks never affect balance rules |
 | settings | timezone (default Africa/Algiers), phase int, report_time, batch_time, reply_window_minutes, quiet_start, quiet_end, checkin_offsets jsonb, rule_params jsonb, work_on_personal bool (default false), reply_reminders_tiktok bool (default false), max_upload_mb (default 100), first_post_at | one row per owner; created on sign-up |
 
 **Database roles:** the MCP server connects as role `cadence_mcp` with SELECT, INSERT and UPDATE only (INSERT and SELECT on change_log), so "Claude never deletes" is enforced by the database, not just by code. `cadence_mcp` is subject to the same owner-only RLS policies; the MCP server sets the owner's JWT claims per request.
@@ -299,11 +301,16 @@ A remote MCP server over Streamable HTTP, written in TypeScript with the officia
 | update_post / update_variant | id, patch, reason | Updated entity + balance warnings | Yes |
 | update_milestone | id, outcome, decision | Milestone | Yes |
 | create_trigger / resolve_trigger | T4 + platform + note / id + note | Trigger | Yes |
+| list_tasks | from, to, postId?, done? | Tasks (not deleted) | No |
+| create_task | title, type, dueAt, postId?, notes? | Task (createdBy claude) | Yes |
+| update_task | id, patch (title, type, dueAt, notes, done), reason | Task | Yes |
+| delete_task | id, reason | Hides a task Claude created; owner tasks are refused ("ask the owner") | Yes |
+| withdraw_post | id, reason | Archives one of Claude's own posts that is still proposed | Yes |
 
 ### 6.2 Safety rules
 
-1. There is no delete tool, and the `cadence_mcp` database role has no DELETE grant.
-2. Claude cannot change a post's stage. Owner approval is the only path out of proposed. update_post and update_variant reject `status` and `postedAt` in a patch.
+1. The `cadence_mcp` database role has no DELETE grant, so Claude never erases data. The only delete-like tool, `delete_task`, hides a task Claude created (sets cancelled_at) and is annotated destructive so clients confirm.
+2. Claude cannot change a post's stage, with one exception: `withdraw_post` moves Claude's own proposal from proposed to archived. Owner approval is the only path forward from proposed. update_post and update_variant reject `status` and `postedAt` in a patch.
 3. Every write logs to change_log with actor = claude and the `reason` given.
 4. Write tools are rate-limited (default 60 writes per hour) and return a clear error when the limit is hit.
 5. Tools carry MCP annotations: read tools `readOnlyHint: true`; write tools `destructiveHint: false`.

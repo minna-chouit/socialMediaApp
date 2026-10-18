@@ -273,3 +273,44 @@ describe('owner web app: push notifications', () => {
     expect(await app('push_key')).toEqual({ publicKey: 'public-key' });
   });
 });
+
+describe('owner web app: tasks', () => {
+  it('tasks: today lists overdue tasks first, then today; done overdue ones drop off', async () => {
+    const add = (title: string, dueAt: string) => app('add_task', { title, type: 'shoot', dueAt });
+    const late = await add('Late one', '2026-10-20T10:00:00+01:00');
+    await add('Today one', '2026-10-21T18:00:00+01:00');
+    await add('Tomorrow', '2026-10-22T09:00:00+01:00');
+    const today = await app('tasks_today');
+    expect(today.map((t: any) => [t.title, t.overdue, t.createdBy])).toEqual([
+      ['Late one', true, 'owner'],
+      ['Today one', false, 'owner'],
+    ]);
+    await app('update_task', { id: late.id, patch: { done: true } });
+    expect((await app('tasks_today')).map((t: any) => t.title)).toEqual(['Today one']);
+  });
+
+  it('tasks: a post shows its tasks in the editor and the week; the owner can delete', async () => {
+    const { postId } = await seedPost(pg, { title: 'Lab day', goLiveAt: '2026-10-22T17:00:00Z' });
+    const t = await app('add_task', {
+      title: 'Edit lab clips',
+      type: 'edit',
+      dueAt: '2026-10-21T20:00:00+01:00',
+      postId,
+    });
+    expect((await app('post', { id: postId })).tasks.map((x: any) => x.title)).toEqual([
+      'Edit lab clips',
+    ]);
+    expect((await app('week')).tasks.map((x: any) => [x.postId, x.title])).toEqual([
+      [postId, 'Edit lab clips'],
+    ]);
+    await app('delete_task', { id: t.id });
+    expect((await app('post', { id: postId })).tasks).toEqual([]);
+  });
+
+  it('tasks: a title and due time are required', async () => {
+    await expect(
+      app('add_task', { title: ' ', dueAt: '2026-10-21T18:00:00+01:00' }),
+    ).rejects.toThrow('title');
+    await expect(app('add_task', { title: 'x' })).rejects.toThrow('due');
+  });
+});

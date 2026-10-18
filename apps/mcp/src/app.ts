@@ -32,6 +32,10 @@ import {
   applyPatch,
   HANDLERS,
   IDEA,
+  openTask,
+  TASK,
+  TASK_PATCH,
+  TASK_TYPES,
   POST_PATCH,
   readPost,
   ToolError,
@@ -166,6 +170,49 @@ const weekStartOf = (ctx: Context) => {
 };
 
 export const APP_ACTIONS: Record<string, Action> = {
+  // Overdue first, then today's; done tasks from today stay visible so they can be unticked.
+  tasks_today: async (_args, ctx) => {
+    const tz = ctx.settings.timezone;
+    const day = ctx.deps.clock.now().toZonedDateTimeISO(tz).toPlainDate();
+    const start = day.toZonedDateTime(tz).toInstant().toString();
+    const end = day.add({ days: 1 }).toZonedDateTime(tz).toInstant().toString();
+    const rows = await ctx.tx.query(
+      `select ${TASK}, (select title from public.posts p where p.id = t.post_id) as post_title,
+              due_at < $1 as overdue
+         from public.tasks t
+        where cancelled_at is null and ((due_at < $1 and not done) or (due_at >= $1 and due_at < $2))
+        order by due_at < $1 desc, due_at`,
+      [start, end],
+    );
+    return rows.map((row) => output(row, tz));
+  },
+
+  add_task: async ({ title, type, dueAt, postId, notes }, ctx) => {
+    if (!String(title ?? '').trim()) throw new ToolError('Give the task a title');
+    if (!dueAt) throw new ToolError('Pick when it is due');
+    if (type && !TASK_TYPES.includes(type as never)) throw new ToolError('Unknown task type');
+    const [task] = await ctx.tx.query(
+      `insert into public.tasks (title, type, due_at, post_id, notes) values ($1, $2, $3, $4, $5)
+       returning ${TASK}`,
+      [String(title).trim(), type || 'other', dueAt, postId || null, notes || null],
+    );
+    return output(task, ctx.settings.timezone);
+  },
+
+  update_task: async ({ id, patch }, ctx) => {
+    await openTask(ctx.tx, id);
+    await applyPatch(ctx.tx, 'tasks', id, patch as Row, TASK_PATCH);
+    const [task] = await ctx.tx.query(`select ${TASK} from public.tasks where id = $1`, [id]);
+    return output(task, ctx.settings.timezone);
+  },
+
+  // The owner can really delete (Claude only hides its own).
+  delete_task: async ({ id }, ctx) => {
+    const rows = await ctx.tx.query('delete from public.tasks where id = $1 returning id', [id]);
+    if (!rows.length) throw new ToolError(`No task with id ${id}`);
+    return { ok: true };
+  },
+
   // Reminders still due today (section 4.2).
   today: async (_args, ctx) => {
     const tz = ctx.settings.timezone;
@@ -365,6 +412,18 @@ export const APP_ACTIONS: Record<string, Action> = {
       weekStart: range.from,
       weekEnd: range.to,
       items: await HANDLERS.get_calendar(range, ctx),
+      tasks: (
+        await ctx.tx.query(
+          `select ${TASK} from public.tasks t where cancelled_at is null and post_id in (
+             select p.id from public.posts p join public.variants v on v.post_id = p.id
+              where coalesce(v.scheduled_at, p.go_live_at) >= $1 and coalesce(v.scheduled_at, p.go_live_at) < $2)
+            order by due_at`,
+          [
+            start.toZonedDateTime(tz).toInstant().toString(),
+            start.add({ days: 7 }).toZonedDateTime(tz).toInstant().toString(),
+          ],
+        )
+      ).map((t) => output(t, tz)),
       warnings: await HANDLERS.check_balance(range, ctx),
     };
   },

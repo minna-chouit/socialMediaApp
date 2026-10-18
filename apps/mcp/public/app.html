@@ -304,6 +304,13 @@
                     </div>`,
                   )
                   .join('')}
+                ${week.tasks
+                  .filter((t) => t.postId === p.postId)
+                  .map(
+                    (t) =>
+                      `<p class="muted" style="margin:6px 0">${t.done ? '✓' : '○'} ${esc(t.title)} · ${esc(t.type)} · ${esc(when(t.dueAt))} ${claudeBadge(t)}</p>`,
+                  )
+                  .join('')}
                 <div class="row" style="margin-top:10px">
                   ${p.stage === 'proposed' ? `<button class="act primary" data-approve="${p.postId}">Approve</button>` : `<button class="act" data-advance="${p.postId}">Next stage</button>`}
                   <button class="act" data-edit="${p.postId}">Edit</button>
@@ -397,6 +404,42 @@
         render();
       }
 
+      const TASK_TYPES = ['shoot', 'edit', 'write', 'post', 'log', 'other'];
+      const typeOptions = (selected) =>
+        TASK_TYPES.map((t) => `<option ${t === selected ? 'selected' : ''}>${t}</option>`).join('');
+      const claudeBadge = (t) =>
+        t.createdBy === 'claude' ? '<span class="pill">Claude</span>' : '';
+      // Default due time for a new task: today at 18:00 local.
+      const todayAt18 = () => {
+        const d = new Date();
+        d.setHours(18, 0, 0, 0);
+        return new Date(d.getTime() - d.getTimezoneOffset() * 60000).toISOString().slice(0, 16);
+      };
+      const taskRow = (t) => `<label class="row" style="margin:6px 0;color:var(--ink)">
+          <input type="checkbox" data-task-done="${t.id}" ${t.done ? 'checked' : ''} style="width:24px;min-height:24px" />
+          <span style="flex:1${t.done ? ';text-decoration:line-through;color:var(--muted)' : ''}">${esc(t.title)}</span>
+          <span class="pill">${esc(t.type)}</span>${claudeBadge(t)}
+          <span class="${t.overdue ? 'error' : 'muted'}">${esc(when(t.dueAt))}</span>
+        </label>`;
+
+      async function renderTasksToday() {
+        const tasks = await api('tasks_today');
+        return `<section class="card">
+            <h2 style="margin:0 0 6px;font-size:18px">Tasks</h2>
+            ${tasks.length ? tasks.map((t) => taskRow(t) + (t.postTitle ? `<p class="muted" style="margin:-4px 0 6px 32px">${esc(t.postTitle)}</p>` : '')).join('') : '<p class="muted">No tasks due today.</p>'}
+            <details style="margin-top:8px"><summary>Add a task</summary>
+              <form id="new-task">
+                <label for="nt-title">Task</label><input id="nt-title" name="title" required />
+                <div class="row">
+                  <label style="flex:1">Type<select name="type">${typeOptions('other')}</select></label>
+                  <label style="flex:2">Due<input name="dueAt" type="datetime-local" value="${todayAt18()}" required /></label>
+                </div>
+                <button class="act primary" type="submit" style="margin-top:8px">Add task</button>
+              </form>
+            </details>
+          </section>`;
+      }
+
       async function renderToday() {
         const [reminders, key] = await Promise.all([
           api('today'),
@@ -406,9 +449,13 @@
         // Keep this device's subscription fresh if notifications are already allowed.
         if (pushReady() && Notification.permission === 'granted' && pushKey)
           subscribePush().catch(() => {});
-        if (!reminders.length) return pushBanner() + '<p class="muted">Nothing left for today.</p>';
+        const tasksSection = await renderTasksToday();
+        if (!reminders.length) {
+          return pushBanner() + tasksSection + '<p class="muted">No reminders left for today.</p>';
+        }
         return (
           pushBanner() +
+          tasksSection +
           reminders
             .map(
               (r) => `<article class="card row">
@@ -517,10 +564,30 @@
                   <legend>${esc(v.platform)} · ${esc(v.format)}</legend>
                   <label>Hook</label><input data-f="hook" value="${esc(v.hook)}" />
                   <label>Caption</label><textarea data-f="caption" rows="3">${esc(v.caption)}</textarea>
+                  <label>Hashtags</label><input data-f="hashtags" value="${esc((v.hashtags || []).map((t) => '#' + t).join(' '))}" placeholder="#campus #studentlife" />
                   <label>Scheduled at (optional)</label><input data-f="scheduledAt" type="datetime-local" value="${esc(toInput(v.scheduledAt))}" />
                 </fieldset>`,
               )
               .join('')}
+            <fieldset class="card"><legend>Tasks</legend>
+              ${(post.tasks || [])
+                .map(
+                  (t) => `<div class="row" data-task="${t.id}" style="margin-bottom:8px">
+                    <input type="checkbox" data-t="done" ${t.done ? 'checked' : ''} aria-label="Done" style="width:24px;min-height:24px" />
+                    <input data-t="title" value="${esc(t.title)}" aria-label="Task" style="flex:2" />
+                    <select data-t="type" aria-label="Type" style="flex:1">${typeOptions(t.type)}</select>
+                    <input data-t="dueAt" type="datetime-local" value="${esc(toInput(t.dueAt))}" aria-label="Due" style="flex:2" />
+                    ${claudeBadge(t)}
+                    <label class="muted" style="margin:0"><input type="checkbox" data-t="delete" style="width:20px;min-height:20px" /> delete</label>
+                  </div>`,
+                )
+                .join('')}
+              <div class="row" data-new-task>
+                <input data-t="title" placeholder="New task for this post" aria-label="New task" style="flex:2" />
+                <select data-t="type" aria-label="Type" style="flex:1">${typeOptions('other')}</select>
+                <input data-t="dueAt" type="datetime-local" value="${esc(toInput(post.goLiveAt))}" aria-label="Due" style="flex:2" />
+              </div>
+            </fieldset>
             <div class="row"><button class="act primary" value="save">Save</button><button class="act" value="cancel" formnovalidate>Cancel</button></div>
           </form>`;
         dialog.showModal();
@@ -543,6 +610,10 @@
                 patch: {
                   hook: value('hook'),
                   caption: value('caption'),
+                  hashtags: value('hashtags')
+                    .split(/[\s,]+/)
+                    .map((tag) => tag.replace(/^#/, ''))
+                    .filter(Boolean),
                   ...(value('scheduledAt')
                     ? {
                         scheduledAt: fromInput(
@@ -552,6 +623,38 @@
                       }
                     : {}),
                 },
+              });
+            }
+            for (const row of dialog.querySelectorAll('[data-task]')) {
+              const t = post.tasks.find((x) => x.id === row.dataset.task);
+              const field = (n) => row.querySelector(`[data-t="${n}"]`);
+              if (field('delete').checked) {
+                await api('delete_task', { id: t.id });
+                continue;
+              }
+              const patch = {
+                title: field('title').value,
+                type: field('type').value,
+                done: field('done').checked,
+                dueAt: fromInput(field('dueAt').value, t.dueAt),
+              };
+              if (
+                patch.title !== t.title ||
+                patch.type !== t.type ||
+                patch.done !== t.done ||
+                patch.dueAt !== t.dueAt
+              ) {
+                await api('update_task', { id: t.id, patch });
+              }
+            }
+            const fresh = dialog.querySelector('[data-new-task]');
+            const freshTitle = fresh.querySelector('[data-t="title"]').value.trim();
+            if (freshTitle) {
+              await api('add_task', {
+                postId: id,
+                title: freshTitle,
+                type: fresh.querySelector('[data-t="type"]').value,
+                dueAt: fromInput(fresh.querySelector('[data-t="dueAt"]').value, post.goLiveAt),
               });
             }
             toast('Saved');
@@ -599,6 +702,13 @@
         } else if (form.dataset.checkin) {
           const metrics = Object.fromEntries(new FormData(form));
           act('log_checkin', { id: form.dataset.checkin, metrics }, 'Check-in saved');
+        } else if (form.id === 'new-task') {
+          const data = Object.fromEntries(new FormData(form));
+          act(
+            'add_task',
+            { title: data.title, type: data.type, dueAt: fromInput(data.dueAt) },
+            'Task added',
+          );
         } else if (form.id === 'followers-form') {
           const data = Object.fromEntries(new FormData(form));
           act('log_followers', { platform: data.platform, count: data.count }, 'Followers saved');
@@ -609,6 +719,13 @@
         if (e.target.closest('[data-send-report]'))
           act('send_report', {}, 'Report sent: Claude can read it now');
         if (e.target.closest('[data-enable-push]')) enablePush().catch((err) => toast(err.message));
+        const done = e.target.closest('[data-task-done]');
+        if (done)
+          act(
+            'update_task',
+            { id: done.dataset.taskDone, patch: { done: done.checked } },
+            done.checked ? 'Done' : 'Not done',
+          );
       });
 
       render();
