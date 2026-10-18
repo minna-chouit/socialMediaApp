@@ -14,6 +14,7 @@ const READ_TOOLS = [
   'list_milestones',
   'list_triggers',
   'get_settings',
+  'list_tasks',
 ];
 const WRITE_TOOLS = [
   'create_idea',
@@ -24,6 +25,10 @@ const WRITE_TOOLS = [
   'update_milestone',
   'create_trigger',
   'resolve_trigger',
+  'create_task',
+  'update_task',
+  'delete_task',
+  'withdraw_post',
 ];
 
 describe('FR-28: server contract', () => {
@@ -37,16 +42,19 @@ describe('FR-28: server contract', () => {
     expect(tools.map((t) => t.name).sort()).toEqual([...READ_TOOLS, ...WRITE_TOOLS].sort());
   });
 
-  it('FR-28: there is no delete tool', async () => {
+  it('FR-28: the only delete tool is delete_task, flagged destructive (it hides, never erases)', async () => {
     const { tools } = await c.client.listTools();
-    expect(tools.filter((t) => /delete|remove|destroy|drop/i.test(t.name))).toEqual([]);
+    const deleting = tools.filter((t) => /delete|remove|destroy|drop/i.test(t.name));
+    expect(deleting.map((t) => [t.name, t.annotations?.destructiveHint])).toEqual([
+      ['delete_task', true],
+    ]);
   });
 
   it('FR-28: read tools are readOnlyHint; write tools are destructiveHint false', async () => {
     const { tools } = await c.client.listTools();
     const hints = Object.fromEntries(tools.map((t) => [t.name, t.annotations]));
     for (const name of READ_TOOLS) expect(hints[name], name).toMatchObject({ readOnlyHint: true });
-    for (const name of WRITE_TOOLS) {
+    for (const name of WRITE_TOOLS.filter((n) => n !== 'delete_task')) {
       expect(hints[name], name).toMatchObject({ readOnlyHint: false, destructiveHint: false });
     }
   });

@@ -42,13 +42,14 @@ export type ReminderCode =
   | 'LI_FALLBACK'
   | 'MILESTONE'
   | 'MONTHLY_REVIEW'
-  | 'TRIGGER';
+  | 'TRIGGER'
+  | 'TASK';
 
 export interface Reminder {
   code: ReminderCode;
   /** code:entityId:local date of `at`; regenerating yields the same key (section 4.2). */
   key: string;
-  entityType: 'variant' | 'checkin' | 'milestone' | 'trigger' | null;
+  entityType: 'variant' | 'checkin' | 'milestone' | 'trigger' | 'task' | null;
   entityId: string | null;
   /** The scheduled time, before quiet hours. */
   at: Temporal.Instant;
@@ -65,6 +66,8 @@ export interface ReminderData {
   captureItems: { tags: string[]; createdAt: Temporal.Instant }[];
   milestones: Milestone[];
   triggers: (TriggerRecord & { id: string; firedAt: Temporal.Instant })[];
+  /** Open tasks (not cancelled); done ones are kept so their reminder can be cancelled. */
+  tasks: { id: string; title: string; dueAt: Temporal.Instant; done: boolean }[];
 }
 
 type Spec = Pick<Reminder, 'code' | 'entityType' | 'entityId' | 'at' | 'urgent' | 'mirror'>;
@@ -164,6 +167,7 @@ function perRecord(data: ReminderData): Spec[] {
     ...data.checkins.map((c) => spec('CHECKIN', 'checkin', checkinId(c), c.dueAt)),
     ...data.milestones.map((m) => spec('MILESTONE', 'milestone', m.id, m.dueAt, true)),
     ...data.triggers.map((t) => spec('TRIGGER', 'trigger', t.id, t.firedAt)),
+    ...data.tasks.map((t) => spec('TASK', 'task', t.id, t.dueAt)),
   ];
 }
 
@@ -239,6 +243,10 @@ export function shouldSend(reminder: Reminder, data: ReminderData, settings: Set
     case 'TRIGGER': {
       const trigger = data.triggers.find((t) => t.id === reminder.entityId);
       return !!trigger && !trigger.resolvedAt;
+    }
+    case 'TASK': {
+      const task = data.tasks.find((t) => t.id === reminder.entityId);
+      return !!task && !task.done;
     }
     case 'CHECKIN': {
       const checkin = data.checkins.find((c) => checkinId(c) === reminder.entityId);

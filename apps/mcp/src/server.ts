@@ -2,7 +2,7 @@ import { ideaReviewInput, PILLARS, PLATFORMS, FORMATS, TOPICS, type Clock } from
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { z } from 'zod';
 import type { Db } from './db';
-import { enforceWriteLimit, HANDLERS, ToolError, type Context } from './handlers';
+import { enforceWriteLimit, HANDLERS, TASK_TYPES, ToolError, type Context } from './handlers';
 
 export interface ServerDeps {
   db: Db;
@@ -31,6 +31,9 @@ R8 at most one leftovers post per week.
 
 Idea rubric (review_idea): score forwardable, fills_gap, doable, original and hook from 1 to 3.
 Cadence computes the verdict: 11 or more is go, 8 to 10 is improve (say what to fix), under 8 is bank.
+
+Tasks: create tasks for concrete steps (shoot, edit, write, post, log). delete_task only hides tasks you
+created. withdraw_post archives one of your own proposals still in the inbox; give the reason.
 
 Feedback style: be direct, and always give at least one alternative.`;
 
@@ -64,7 +67,14 @@ const postInput = z.object({
 });
 
 /** Section 6.1. `read` tools never write. */
-const TOOLS: { name: string; read: boolean; description: string; input: z.ZodRawShape }[] = [
+const TOOLS: {
+  name: string;
+  read: boolean;
+  /** delete_task: hides a task, so clients should confirm. */
+  destructive?: boolean;
+  description: string;
+  input: z.ZodRawShape;
+}[] = [
   {
     name: 'get_calendar',
     read: true,
@@ -203,6 +213,60 @@ const TOOLS: { name: string; read: boolean; description: string; input: z.ZodRaw
     description: 'Resolve a strategy trigger with a note.',
     input: { id, note: z.string().trim().min(1), reason },
   },
+  {
+    name: 'list_tasks',
+    read: true,
+    description: 'Tasks due between two dates (shoot, edit, write, post, log, other).',
+    input: { from: date, to: date, postId: id.optional(), done: z.boolean().optional() },
+  },
+  {
+    name: 'create_task',
+    read: false,
+    description:
+      'Add a task for the owner, optionally linked to a post. Shown with a Claude badge.',
+    input: {
+      title: z.string().trim().min(1),
+      type: z.enum(TASK_TYPES),
+      dueAt: dateTime,
+      postId: id.optional(),
+      notes: z.string().optional(),
+      reason,
+    },
+  },
+  {
+    name: 'update_task',
+    read: false,
+    description: 'Change a task, or mark it done.',
+    input: {
+      id,
+      patch: z
+        .object({
+          title: z.string().trim().min(1),
+          type: z.enum(TASK_TYPES),
+          dueAt: dateTime,
+          notes: z.string(),
+          done: z.boolean(),
+        })
+        .partial()
+        .strict(),
+      reason,
+    },
+  },
+  {
+    name: 'delete_task',
+    read: false,
+    destructive: true,
+    description:
+      'Remove a task you created (it is hidden, not erased). For the owner’s tasks, ask the owner instead.',
+    input: { id, reason },
+  },
+  {
+    name: 'withdraw_post',
+    read: false,
+    description:
+      'Withdraw one of your own proposals that is still in the owner’s inbox (it is archived).',
+    input: { id, reason },
+  },
 ];
 
 const ok = (data: unknown) => ({
@@ -228,7 +292,11 @@ export function createServer(deps: ServerDeps): McpServer {
         inputSchema: tool.input,
         annotations: tool.read
           ? { readOnlyHint: true }
-          : { readOnlyHint: false, destructiveHint: false, idempotentHint: false },
+          : {
+              readOnlyHint: false,
+              destructiveHint: Boolean(tool.destructive),
+              idempotentHint: false,
+            },
       },
       async (args: Record<string, unknown>) => {
         const reason = typeof args.reason === 'string' ? args.reason : null;

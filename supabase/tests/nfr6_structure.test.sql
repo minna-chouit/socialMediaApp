@@ -8,7 +8,7 @@ select set_eq(
   array[
     'posts', 'variants', 'change_log', 'media', 'post_media', 'idea_media', 'ideas',
     'idea_verdicts', 'checkins', 'follower_snapshots', 'weekly_reports', 'milestones',
-    'triggers', 'reminders', 'push_subscriptions', 'settings'
+    'triggers', 'reminders', 'push_subscriptions', 'settings', 'tasks'
   ],
   'NFR-6: the public schema has exactly the section 5 tables'
 );

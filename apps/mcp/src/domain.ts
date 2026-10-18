@@ -141,3 +141,15 @@ export async function loadFollowerSnapshots(tx: Tx) {
     `select platform, week_start::text as "weekStart" from public.follower_snapshots`,
   );
 }
+
+export async function loadTasks(tx: Tx) {
+  const rows = await tx.query<{ t: Json }>(
+    'select to_jsonb(t) as t from public.tasks t where cancelled_at is null',
+  );
+  return rows.map(({ t }) => ({
+    id: String(t.id),
+    title: String(t.title),
+    dueAt: instant(t.due_at)!,
+    done: Boolean(t.done),
+  }));
+}

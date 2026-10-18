@@ -55,6 +55,20 @@ async function logWrite(
 }
 
 // Enum arrays come back from the drivers as '{a,b}' text, so these cast topics to text[].
+export const TASK =
+  'id, title, type, due_at, done, notes, post_id, created_by, created_at, completed_at';
+export const TASK_TYPES = ['shoot', 'edit', 'write', 'post', 'log', 'other'] as const;
+
+/** A task Claude or the owner can still change (not cancelled). */
+export async function openTask(tx: Tx, id: unknown) {
+  const [task] = await tx.query<{ created_by: string }>(
+    'select created_by from public.tasks where id = $1 and cancelled_at is null',
+    [id],
+  );
+  if (!task) throw new ToolError(`No task with id ${id}`);
+  return task;
+}
+
 export const IDEA = 'id, text, source, tags, pillar, topics::text[] as topics, status, created_at';
 const POST = `id, title, pillar, topics::text[] as topics, status, go_live_at, notes, is_leftovers,
   idea_id, created_by, reminder_overrides, created_at`;
@@ -100,6 +114,12 @@ export async function readPost(
     ),
     media: media.map((m) => output(m, tz)),
     changeLog: changeLog.map((row) => output(row, tz)),
+    tasks: (
+      await tx.query(
+        `select ${TASK} from public.tasks where post_id = $1 and cancelled_at is null order by due_at`,
+        [id],
+      )
+    ).map((t) => output(t, tz)),
   };
 }
 
@@ -126,6 +146,15 @@ export const POST_PATCH: Columns = {
   ideaId: { column: 'idea_id' },
   isLeftovers: { column: 'is_leftovers' },
   notes: { column: 'notes' },
+};
+
+export const TASK_PATCH: Columns = {
+  title: { column: 'title' },
+  type: { column: 'type' },
+  dueAt: { column: 'due_at' },
+  notes: { column: 'notes' },
+  done: { column: 'done' },
+  postId: { column: 'post_id' },
 };
 
 export const VARIANT_PATCH: Columns = {
@@ -174,6 +203,67 @@ export async function enforceWriteLimit(tx: Tx) {
 
 /** Tool handlers by name; each runs inside one owner transaction (see createServer). */
 export const HANDLERS: Record<string, Handler> = {
+  create_task: async ({ title, type, dueAt, postId, notes, reason }, { tx, settings }) => {
+    if (postId && !(await tx.query('select id from public.posts where id = $1', [postId])).length) {
+      throw new ToolError(`No post with id ${postId}`);
+    }
+    // The tasks trigger makes anything cadence_mcp inserts created_by claude.
+    const [task] = await tx.query(
+      `insert into public.tasks (title, type, due_at, post_id, notes) values ($1, $2, $3, $4, $5)
+       returning ${TASK}`,
+      [title, type, dueAt, postId ?? null, notes ?? null],
+    );
+    const created = output(task, settings.timezone);
+    await logWrite(tx, { type: 'task', id: task.id }, 'created', { new: created }, reason);
+    return created;
+  },
+
+  list_tasks: async ({ from, to, postId, done }, { tx, settings }) => {
+    const [start, end] = dayRange(from, to, settings.timezone);
+    const rows = await tx.query(
+      `select ${TASK} from public.tasks
+        where cancelled_at is null and due_at >= $1 and due_at < $2
+          and ($3::uuid is null or post_id = $3) and ($4::boolean is null or done = $4)
+        order by due_at`,
+      [start, end, postId ?? null, done ?? null],
+    );
+    return rows.map((row) => output(row, settings.timezone));
+  },
+
+  update_task: async ({ id, patch }, { tx, settings }) => {
+    await openTask(tx, id);
+    await applyPatch(tx, 'tasks', id, patch as Row, TASK_PATCH);
+    const [task] = await tx.query(`select ${TASK} from public.tasks where id = $1`, [id]);
+    return output(task, settings.timezone);
+  },
+
+  // Claude never deletes rows (section 6.2): this hides Claude's own task by cancelling it.
+  delete_task: async ({ id, reason }, { tx, deps }) => {
+    const task = await openTask(tx, id);
+    if (task.created_by !== 'claude') {
+      throw new ToolError('This is the owner’s task; ask the owner to delete it in Cadence');
+    }
+    const at = deps.clock.now().toString();
+    await tx.query('update public.tasks set cancelled_at = $2 where id = $1', [id, at]);
+    await logWrite(tx, { type: 'task', id }, 'deleted', { new: at }, reason);
+    return { id, deleted: true };
+  },
+
+  // The one stage change Claude may make: withdrawing its own proposal from the owner's inbox.
+  withdraw_post: async ({ id }, { tx, settings }) => {
+    const [post] = await tx.query<{ status: string; created_by: string }>(
+      'select status, created_by from public.posts where id = $1',
+      [id],
+    );
+    if (!post) throw new ToolError(`No post with id ${id}`);
+    if (post.created_by !== 'claude' || post.status !== 'proposed') {
+      throw new ToolError('Only your own proposals that are still in the inbox can be withdrawn');
+    }
+    // The FR-3 trigger logs the status change with the reason.
+    await tx.query(`update public.posts set status = 'archived' where id = $1`, [id]);
+    return readPost(tx, id, settings.timezone);
+  },
+
   resolve_trigger: async ({ id, note, reason }, { tx, settings, deps }) => {
     const [before] = await tx.query('select note, resolved_at from public.triggers where id = $1', [
       id,

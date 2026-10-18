@@ -25,6 +25,7 @@ import {
   loadFollowerSnapshots,
   loadMilestones,
   loadPosts,
+  loadTasks,
   loadTriggers,
 } from './domain';
 import {
@@ -64,6 +65,7 @@ const REMINDER_TEXT: Record<string, string> = {
   MILESTONE: 'Milestone review',
   MONTHLY_REVIEW: 'Monthly review',
   TRIGGER: 'Strategy trigger: review with Claude',
+  TASK: 'Task due',
 };
 
 type Row = Record<string, unknown>;
@@ -129,6 +131,7 @@ async function reminderContext(ctx: Context) {
     captureItems: await loadCaptureItems(ctx.tx),
     milestones: await loadMilestones(ctx.tx),
     triggers: await loadTriggers(ctx.tx),
+    tasks: await loadTasks(ctx.tx),
   };
   const variantTitle = new Map(
     data.posts.flatMap((p) => p.variants.map((v) => [v.id, `${p.title} (${v.platform})`] as const)),
@@ -148,6 +151,7 @@ async function reminderContext(ctx: Context) {
     if (entityType === 'milestone')
       return data.milestones.find((m) => m.id === entityId)?.title ?? null;
     if (entityType === 'trigger') return data.triggers.find((t) => t.id === entityId)?.rule ?? null;
+    if (entityType === 'task') return data.tasks.find((t) => t.id === entityId)?.title ?? null;
     return null;
   };
   return { data, settings: coreSettings(ctx.settings), about };

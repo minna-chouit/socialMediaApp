@@ -45,6 +45,7 @@ const EMPTY: ReminderData = {
   captureItems: [],
   milestones: [],
   triggers: [],
+  tasks: [],
 };
 const remind = (fields: Partial<ReminderData> = {}, settings = S, window = WEEK) =>
   generateReminders({ ...EMPTY, ...fields }, settings, window);
@@ -483,5 +484,30 @@ describe('TRIGGER', () => {
     const [reminder] = ofCode(remind({ triggers: [fired] }), 'TRIGGER');
     const resolved = { ...fired, resolvedAt: at('2026-10-21T09:00:00Z') };
     expect(shouldSend(reminder, { ...EMPTY, triggers: [resolved] }, S)).toBe(false);
+  });
+});
+
+describe('TASK', () => {
+  const task = {
+    id: 'task-1',
+    title: 'Shoot B-roll',
+    dueAt: at('2026-10-20T16:00:00Z'),
+    done: false,
+  };
+
+  it('TASK: at the task due time, not urgent; cancelled once done or gone', () => {
+    expect(ofCode(remind({ tasks: [task] }), 'TASK').map(summary)).toEqual([
+      {
+        key: 'TASK:task-1:2026-10-20',
+        at: '2026-10-20T16:00:00Z',
+        sendAt: '2026-10-20T16:00:00Z',
+        urgent: false,
+        mirror: false,
+      },
+    ]);
+    expect(sends('TASK', { tasks: [task] })).toBe(true);
+    const [reminder] = ofCode(remind({ tasks: [task] }), 'TASK');
+    expect(shouldSend(reminder, { ...EMPTY, tasks: [{ ...task, done: true }] }, S)).toBe(false);
+    expect(shouldSend(reminder, EMPTY, S)).toBe(false);
   });
 });

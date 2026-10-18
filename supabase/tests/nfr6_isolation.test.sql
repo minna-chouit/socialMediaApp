@@ -40,6 +40,7 @@ insert into public.reminders (owner_id, code, key, send_at)
 insert into public.push_subscriptions (owner_id, endpoint, keys)
   values (:owner, 'https://push.example.test/1', '{}');
 insert into public.settings (owner_id) values (:owner) on conflict (owner_id) do nothing;
+insert into public.tasks (owner_id, title, due_at) values (:owner, 'Shoot B-roll', '2026-10-20 16:00+00');
 insert into public.change_log (owner_id, entity_type, entity_id, actor, field, new_value)
   values (:owner, 'post', '20000000-0000-0000-0000-000000000001', 'owner', 'title', '"Seed post"');
 
