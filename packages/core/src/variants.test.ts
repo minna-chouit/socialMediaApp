@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { checkVariants, FORMATS, isFormatAllowed, PLATFORMS } from './variants';
+import { checkVariants, FORMATS, isFormatAllowed, PLATFORMS, removalProblem } from './variants';
 
 // FR-4 acceptance criteria, written out by hand.
 const ALLOWED = [
@@ -45,5 +45,20 @@ describe('FR-4: platform formats', () => {
       { platform: 'instagram', format: 'photo' },
     ]);
     expect(errors).toEqual(['a post can have only one instagram variant']);
+  });
+});
+
+describe('FR-29: removing a variant', () => {
+  const ig = { id: 'ig', platform: 'instagram', format: 'reel' } as const;
+  const tt = { id: 'tt', platform: 'tiktok', format: 'video' } as const;
+  const posted = { ...tt, postedAt: '2026-10-20T18:00:00Z' };
+
+  it('FR-29: an unposted variant can be removed while another remains', () => {
+    expect(removalProblem([ig, tt], 'tt')).toBeNull();
+  });
+
+  it('FR-29: a posted variant or the last variant cannot be removed', () => {
+    expect(removalProblem([ig, posted], 'tt')).toMatch(/already posted/);
+    expect(removalProblem([ig], 'ig')).toMatch(/only variant.*withdraw or archive the post/);
   });
 });

@@ -557,8 +557,24 @@
         }
       }
 
+      // Formats each platform supports (FR-4); the server checks them too.
+      const FORMATS = {
+        instagram: ['reel', 'carousel', 'photo', 'story'],
+        tiktok: ['video', 'photo'],
+        linkedin: ['text', 'image', 'document', 'video'],
+      };
+      const tags = (text) =>
+        text
+          .split(/[\s,]+/)
+          .map((tag) => tag.replace(/^#/, ''))
+          .filter(Boolean);
+
       async function openEditor(id) {
         const post = await api('post', { id });
+        // FR-4 / FR-29: one variant per platform, so only free platforms can be added.
+        const freePlatforms = Object.keys(FORMATS).filter(
+          (p) => !post.variants.some((v) => v.platform === p),
+        );
         const dialog = document.getElementById('editor');
         dialog.innerHTML = `<form method="dialog" id="edit-form">
             <h2 style="margin-top:0">Edit post</h2>
@@ -568,14 +584,36 @@
             ${post.variants
               .map(
                 (v) => `<fieldset class="card" data-variant="${v.id}">
-                  <legend>${esc(v.platform)} · ${esc(v.format)}</legend>
+                  <legend>${esc(v.platform)} · ${esc(v.format)} ${claudeBadge(v)}</legend>
                   <label>Hook</label><input data-f="hook" value="${esc(v.hook)}" />
                   <label>Caption</label><textarea data-f="caption" rows="3">${esc(v.caption)}</textarea>
                   <label>Hashtags</label><input data-f="hashtags" value="${esc((v.hashtags || []).map((t) => '#' + t).join(' '))}" placeholder="#campus #studentlife" />
                   <label>Scheduled at (optional)</label><input data-f="scheduledAt" type="datetime-local" value="${esc(toInput(v.scheduledAt))}" />
+                  ${
+                    v.postedAt
+                      ? '<p class="muted">Posted, so it stays.</p>'
+                      : post.variants.length > 1
+                        ? `<label class="muted"><input type="checkbox" data-f="remove" style="width:20px;min-height:20px" /> Remove this variant</label>`
+                        : '<p class="muted">The only variant. To drop it, reject or archive the post instead.</p>'
+                  }
                 </fieldset>`,
               )
               .join('')}
+            ${
+              freePlatforms.length
+                ? `<fieldset class="card" data-new-variant><legend>Add a variant</legend>
+                  <div class="row">
+                    <label style="flex:1">Platform<select data-n="platform"><option value="">None</option>${freePlatforms.map((p) => `<option>${p}</option>`).join('')}</select></label>
+                    <label style="flex:1">Format<select data-n="format"></select></label>
+                    <label style="flex:1">Language<select data-n="language"><option>en</option><option>darija</option><option>mixed</option></select></label>
+                  </div>
+                  <label>Hook<input data-n="hook" /></label>
+                  <label>Caption<textarea data-n="caption" rows="2"></textarea></label>
+                  <label>Hashtags<input data-n="hashtags" placeholder="#campus #studentlife" /></label>
+                  <label>Scheduled at (optional; empty goes live with the post)<input data-n="scheduledAt" type="datetime-local" /></label>
+                </fieldset>`
+                : ''
+            }
             <fieldset class="card"><legend>Tasks</legend>
               ${(post.tasks || [])
                 .map(
@@ -598,6 +636,14 @@
             <div class="row"><button class="act primary" value="save">Save</button><button class="act" value="cancel" formnovalidate>Cancel</button></div>
           </form>`;
         dialog.showModal();
+        const newPlatform = dialog.querySelector('[data-n="platform"]');
+        if (newPlatform) {
+          newPlatform.onchange = () => {
+            dialog.querySelector('[data-n="format"]').innerHTML = (FORMATS[newPlatform.value] || [])
+              .map((f) => `<option>${f}</option>`)
+              .join('');
+          };
+        }
         dialog.onclose = async () => {
           if (dialog.returnValue !== 'save') return;
           try {
@@ -609,18 +655,20 @@
                 goLiveAt: fromInput(dialog.querySelector('#e-date').value, post.goLiveAt),
               },
             });
+            const removing = [];
             for (const fs of dialog.querySelectorAll('[data-variant]')) {
               const v = post.variants.find((x) => x.id === fs.dataset.variant);
+              if (fs.querySelector('[data-f="remove"]')?.checked) {
+                removing.push(v);
+                continue;
+              }
               const value = (f) => fs.querySelector(`[data-f="${f}"]`).value;
               await api('update_variant', {
                 id: v.id,
                 patch: {
                   hook: value('hook'),
                   caption: value('caption'),
-                  hashtags: value('hashtags')
-                    .split(/[\s,]+/)
-                    .map((tag) => tag.replace(/^#/, ''))
-                    .filter(Boolean),
+                  hashtags: tags(value('hashtags')),
                   ...(value('scheduledAt')
                     ? {
                         scheduledAt: fromInput(
@@ -631,6 +679,32 @@
                     : {}),
                 },
               });
+            }
+            const added = dialog.querySelector('[data-new-variant]');
+            const newField = (n) => added?.querySelector(`[data-n="${n}"]`).value;
+            if (added && newField('platform')) {
+              await api('add_variant', {
+                postId: id,
+                variant: {
+                  platform: newField('platform'),
+                  format: newField('format'),
+                  language: newField('language'),
+                  hook: newField('hook'),
+                  caption: newField('caption'),
+                  hashtags: tags(newField('hashtags')),
+                  scheduledAt: fromInput(newField('scheduledAt'), post.goLiveAt),
+                },
+              });
+            }
+            // FR-29: removal hides the variant (kept in the change log), so confirm first.
+            const names = removing.map((v) => `${v.platform} · ${v.format}`).join(', ');
+            if (
+              removing.length &&
+              confirm(
+                `Remove ${names} from this post? It leaves the plan but stays in the history.`,
+              )
+            ) {
+              for (const v of removing) await api('remove_variant', { id: v.id });
             }
             for (const row of dialog.querySelectorAll('[data-task]')) {
               const t = post.tasks.find((x) => x.id === row.dataset.task);

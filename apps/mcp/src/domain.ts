@@ -55,7 +55,8 @@ function corePost(row: Json): Post {
 export async function loadPosts(tx: Tx): Promise<Post[]> {
   const rows = await tx.query<{ post: Json }>(
     `select to_jsonb(p) || jsonb_build_object('variants', coalesce(
-       (select jsonb_agg(to_jsonb(v)) from public.variants v where v.post_id = p.id), '[]'::jsonb)) as post
+       (select jsonb_agg(to_jsonb(v)) from public.variants v
+          where v.post_id = p.id and v.removed_at is null), '[]'::jsonb)) as post
      from public.posts p`,
   );
   return rows.map((r) => corePost(r.post));

@@ -34,6 +34,8 @@ Cadence computes the verdict: 11 or more is go, 8 to 10 is improve (say what to 
 
 Tasks: create tasks for concrete steps (shoot, edit, write, post, log). delete_task only hides tasks you
 created. withdraw_post archives one of your own proposals still in the inbox; give the reason.
+add_variant and remove_variant change a post's platforms; removing hides the variant, and posted
+variants or a post's only variant cannot be removed.
 
 Feedback style: be direct, and always give at least one alternative.`;
 
@@ -70,7 +72,7 @@ const postInput = z.object({
 const TOOLS: {
   name: string;
   read: boolean;
-  /** delete_task: hides a task, so clients should confirm. */
+  /** delete_task, remove_variant: they hide a row, so clients should confirm. */
   destructive?: boolean;
   description: string;
   input: z.ZodRawShape;
@@ -189,6 +191,21 @@ const TOOLS: {
     read: false,
     description: 'Change variant fields (not postedAt).',
     input: { id, patch: variantInput.partial().strict(), reason },
+  },
+  {
+    name: 'add_variant',
+    read: false,
+    description:
+      'Add a platform version to an existing post (one per platform). Without scheduledAt it goes live with the post. Returns balance warnings.',
+    input: { postId: id, variant: variantInput, reason },
+  },
+  {
+    name: 'remove_variant',
+    read: false,
+    destructive: true,
+    description:
+      'Remove a variant from its post (it is hidden, not erased). Posted variants and a post’s only variant cannot be removed; use withdraw_post for your own proposal instead.',
+    input: { id, reason },
   },
   {
     name: 'update_milestone',

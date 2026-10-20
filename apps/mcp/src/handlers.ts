@@ -4,7 +4,10 @@ import {
   checkVariants,
   metricsSummary,
   planningWeek,
+  removalProblem,
   reviewIdea,
+  type Format,
+  type Platform,
 } from '@cadence/core';
 import type { Tx } from './db';
 import { coreSettings, inputPost, loadCheckins, loadPosts } from './domain';
@@ -69,6 +72,62 @@ export async function openTask(tx: Tx, id: unknown) {
   return task;
 }
 
+/** A variant that has not been removed (FR-29). */
+export async function openVariant(tx: Tx, id: unknown) {
+  const [variant] = await tx.query<{ post_id: string; platform: string; format: string }>(
+    'select post_id, platform, format from public.variants where id = $1 and removed_at is null',
+    [id],
+  );
+  if (!variant) throw new ToolError(`No variant with id ${id}`);
+  return variant;
+}
+
+const liveVariants = (tx: Tx, postId: unknown) =>
+  tx.query<{ id: string; platform: Platform; format: Format; posted_at: unknown }>(
+    'select id, platform, format, posted_at from public.variants where post_id = $1 and removed_at is null',
+    [postId],
+  );
+
+/** Adds a variant to a post under the FR-4 rules; returns its id (FR-29). */
+export async function addVariant(tx: Tx, postId: unknown, v: Row) {
+  if (!(await tx.query('select id from public.posts where id = $1', [postId])).length) {
+    throw new ToolError(`No post with id ${postId}`);
+  }
+  const problems = checkVariants([
+    ...(await liveVariants(tx, postId)),
+    v as { platform: Platform; format: Format },
+  ]);
+  if (problems.length) throw new ToolError(problems.join('; '));
+  const [{ id }] = await tx.query<{ id: string }>(
+    `insert into public.variants (post_id, platform, format, language, caption, hook, hashtags, scheduled_at)
+     values ($1, $2, $3, $4, $5, $6, $7::text[], $8) returning id`,
+    [
+      postId,
+      v.platform,
+      v.format,
+      v.language || 'en',
+      v.caption || null,
+      v.hook || null,
+      textArray(v.hashtags),
+      v.scheduledAt || null,
+    ],
+  );
+  return id;
+}
+
+/** Hides a variant unless it is posted or the post's last one (FR-29); returns its post id. */
+export async function removeVariant(tx: Tx, id: unknown, at: string) {
+  const { post_id } = await openVariant(tx, id);
+  const variants = (await liveVariants(tx, post_id)).map((v) => ({
+    id: v.id,
+    postedAt: v.posted_at,
+  }));
+  const problem = removalProblem(variants, String(id));
+  if (problem) throw new ToolError(problem);
+  await tx.query('update public.variants set removed_at = $2 where id = $1', [id, at]);
+  return post_id;
+}
+
 export const IDEA = 'id, text, source, tags, pillar, topics::text[] as topics, status, created_at';
 const POST = `id, title, pillar, topics::text[] as topics, status, go_live_at, notes, is_leftovers,
   idea_id, created_by, reminder_overrides, created_at`;
@@ -93,10 +152,12 @@ export async function readPost(
 ): Promise<Row & { variants: Row[] }> {
   const [post] = await tx.query(`select ${POST} from public.posts where id = $1`, [id]);
   if (!post) throw new ToolError(`No post with id ${id}`);
-  const variants = await tx.query(
+  const allVariants = await tx.query(
     'select * from public.variants where post_id = $1 order by platform',
     [id],
   );
+  // Removed variants (FR-29) are hidden but keep their change log entries.
+  const variants = allVariants.filter((v) => !v.removed_at);
   const media = await tx.query(
     `select m.* from public.media m join public.post_media pm on pm.media_id = m.id
       where pm.post_id = $1 order by m.taken_at nulls last, m.created_at`,
@@ -105,12 +166,12 @@ export async function readPost(
   const changeLog = await tx.query(
     `select actor, field, old_value, new_value, reason, at from public.change_log
       where entity_id = $1 or entity_id = any($2::uuid[]) order by at, field`,
-    [id, `{${variants.map((v) => v.id).join(',')}}`],
+    [id, `{${allVariants.map((v) => v.id).join(',')}}`],
   );
   return {
     ...output(post, tz),
     variants: variants.map((v) =>
-      output(v, tz, ['owner_id', 'created_at', 'updated_at', 'post_id']),
+      output(v, tz, ['owner_id', 'created_at', 'updated_at', 'post_id', 'removed_at']),
     ),
     media: media.map((m) => output(m, tz)),
     changeLog: changeLog.map((row) => output(row, tz)),
@@ -317,12 +378,22 @@ export const HANDLERS: Record<string, Handler> = {
     return output(milestone, settings.timezone);
   },
 
+  add_variant: async ({ postId, variant, reason }, { tx, settings }) => {
+    const id = await addVariant(tx, postId, variant as Row);
+    await logWrite(tx, { type: 'variant', id }, 'created', { new: variant }, reason);
+    const post = await readPost(tx, postId, settings.timezone);
+    return { post, warnings: await weekWarnings(tx, post.goLiveAt, settings) };
+  },
+
+  // Claude never deletes rows (section 6.2): this hides the variant; the FR-3 trigger logs it.
+  remove_variant: async ({ id }, { tx, settings, deps }) => {
+    const postId = await removeVariant(tx, id, deps.clock.now().toString());
+    const post = await readPost(tx, postId, settings.timezone);
+    return { post, warnings: await weekWarnings(tx, post.goLiveAt, settings) };
+  },
+
   update_variant: async ({ id, patch }, { tx, settings }) => {
-    const [current] = await tx.query(
-      'select post_id, platform, format from public.variants where id = $1',
-      [id],
-    );
-    if (!current) throw new ToolError(`No variant with id ${id}`);
+    const current = await openVariant(tx, id);
     const next = { platform: current.platform, format: current.format, ...(patch as Row) };
     const problems = checkVariants([next] as Parameters<typeof checkVariants>[0]);
     if (problems.length) throw new ToolError(problems.join('; '));
@@ -357,22 +428,7 @@ export const HANDLERS: Record<string, Handler> = {
         args.notes ?? null,
       ],
     );
-    for (const v of variants) {
-      await tx.query(
-        `insert into public.variants (post_id, platform, format, language, caption, hook, hashtags, scheduled_at)
-         values ($1, $2, $3, $4, $5, $6, $7::text[], $8)`,
-        [
-          id,
-          v.platform,
-          v.format,
-          v.language ?? 'en',
-          v.caption ?? null,
-          v.hook ?? null,
-          textArray(v.hashtags),
-          v.scheduledAt ?? null,
-        ],
-      );
-    }
+    for (const v of variants) await addVariant(tx, id, v);
     const post = await readPost(tx, id, settings.timezone);
     await logWrite(tx, { type: 'post', id }, 'created', { new: post }, args.reason);
     return { post, warnings: await weekWarnings(tx, args.goLiveAt, settings) };
@@ -531,7 +587,7 @@ export const HANDLERS: Record<string, Handler> = {
               v.format, coalesce(v.scheduled_at, p.go_live_at) as go_live_at, v.scheduled_natively,
               v.posted_at
          from public.variants v join public.posts p on p.id = v.post_id
-        where p.status <> 'archived'
+        where p.status <> 'archived' and v.removed_at is null
           and coalesce(v.scheduled_at, p.go_live_at) >= $1 and coalesce(v.scheduled_at, p.go_live_at) < $2
         order by go_live_at, v.platform`,
       dayRange(from, to, settings.timezone),

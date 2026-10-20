@@ -2,7 +2,7 @@
 -- Runs as postgres: constraints apply to every role, RLS is covered in nfr6_*.
 begin;
 create extension if not exists pgtap with schema extensions;
-select plan(24);
+select plan(26);
 
 insert into auth.users (id, email) values ('00000000-0000-0000-0000-00000000000a', 'owner@example.test');
 \set owner '''00000000-0000-0000-0000-00000000000a'''
@@ -25,6 +25,17 @@ select throws_ok(
   format($$ insert into public.variants (owner_id, post_id, platform, format)
             values (%L, '20000000-0000-0000-0000-000000000001', 'instagram', 'carousel') $$, :owner),
   '23505', null, 'FR-4: one variant per platform per post'
+);
+select throws_ok(
+  $$ update public.variants set posted_at = now(), removed_at = now()
+      where id = '30000000-0000-0000-0000-000000000001' $$,
+  '23514', null, 'FR-29: a posted variant cannot be removed'
+);
+update public.variants set removed_at = now() where id = '30000000-0000-0000-0000-000000000001';
+select lives_ok(
+  format($$ insert into public.variants (owner_id, post_id, platform, format)
+            values (%L, '20000000-0000-0000-0000-000000000001', 'instagram', 'carousel') $$, :owner),
+  'FR-29: a removed platform can be added again'
 );
 
 -- checkins

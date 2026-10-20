@@ -29,10 +29,13 @@ import {
   loadTriggers,
 } from './domain';
 import {
+  addVariant,
   applyPatch,
   HANDLERS,
   IDEA,
   openTask,
+  openVariant,
+  removeVariant,
   TASK,
   TASK_PATCH,
   TASK_TYPES,
@@ -416,7 +419,7 @@ export const APP_ACTIONS: Record<string, Action> = {
         await ctx.tx.query(
           `select ${TASK} from public.tasks t where cancelled_at is null and post_id in (
              select p.id from public.posts p join public.variants v on v.post_id = p.id
-              where coalesce(v.scheduled_at, p.go_live_at) >= $1 and coalesce(v.scheduled_at, p.go_live_at) < $2)
+              where v.removed_at is null and coalesce(v.scheduled_at, p.go_live_at) >= $1 and coalesce(v.scheduled_at, p.go_live_at) < $2)
             order by due_at`,
           [
             start.toZonedDateTime(tz).toInstant().toString(),
@@ -460,9 +463,20 @@ export const APP_ACTIONS: Record<string, Action> = {
     return readPost(ctx.tx, id, ctx.settings.timezone);
   },
 
+  add_variant: async ({ postId, variant }, ctx) => {
+    await addVariant(ctx.tx, postId, (variant ?? {}) as Row);
+    return readPost(ctx.tx, postId, ctx.settings.timezone);
+  },
+
+  // FR-29: hidden, not deleted, so it stays in the change log with the owner's reason.
+  remove_variant: async ({ id, reason }, ctx) => {
+    if (reason) await ctx.tx.query("select set_config('cadence.reason', $1, true)", [reason]);
+    const postId = await removeVariant(ctx.tx, id, ctx.deps.clock.now().toString());
+    return readPost(ctx.tx, postId, ctx.settings.timezone);
+  },
+
   update_variant: async ({ id, patch }, ctx) => {
-    const [variant] = await ctx.tx.query('select post_id from public.variants where id = $1', [id]);
-    if (!variant) throw new ToolError(`No variant with id ${id}`);
+    const variant = await openVariant(ctx.tx, id);
     await applyPatch(ctx.tx, 'variants', id, patch as Row, VARIANT_PATCH);
     return readPost(ctx.tx, variant.post_id, ctx.settings.timezone);
   },
@@ -473,9 +487,10 @@ export const APP_ACTIONS: Record<string, Action> = {
       platform: string;
       format: string;
       posted_at: Date | null;
-    }>('select post_id, platform, format, posted_at from public.variants where id = $1', [
-      variantId,
-    ]);
+    }>(
+      'select post_id, platform, format, posted_at from public.variants where id = $1 and removed_at is null',
+      [variantId],
+    );
     if (!v) throw new ToolError(`No variant with id ${variantId}`);
     if (v.posted_at) throw new ToolError('Already marked posted');
     const now = ctx.deps.clock.now();

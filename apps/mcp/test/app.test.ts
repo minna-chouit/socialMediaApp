@@ -314,3 +314,43 @@ describe('owner web app: tasks', () => {
     await expect(app('add_task', { title: 'x' })).rejects.toThrow('due');
   });
 });
+
+describe('owner web app: adding and removing variants', () => {
+  it('FR-29: the owner adds a variant; a second one on the same platform is refused', async () => {
+    const { postId } = await seedPost(pg, { title: 'Lab day', goLiveAt: '2026-10-22T17:00:00Z' });
+    const post = await app('add_variant', {
+      postId,
+      variant: { platform: 'linkedin', format: 'text', caption: 'What I learned', hook: '' },
+    });
+    expect(post.variants.map((v: any) => [v.platform, v.createdBy, v.hook])).toEqual([
+      ['instagram', 'owner', null],
+      ['linkedin', 'owner', null],
+    ]);
+    await expect(
+      app('add_variant', { postId, variant: { platform: 'linkedin', format: 'image' } }),
+    ).rejects.toThrow('only one linkedin variant');
+  });
+
+  it('FR-29: removing a variant with a reason logs it as the owner and drops it from the week and reminders', async () => {
+    const {
+      variantIds: [, tiktok],
+    } = await seedPost(pg, { title: 'Lab day', goLiveAt: '2026-10-21T11:30:00Z' }, [
+      { platform: 'instagram', format: 'reel' },
+      { platform: 'tiktok', format: 'video' },
+    ]);
+    const postNow = async () =>
+      (await app('today')).filter((r: any) => r.code === 'POST_NOW').map((r: any) => r.about);
+    expect(await postNow()).toEqual(['Lab day (instagram)', 'Lab day (tiktok)']);
+    const post = await app('remove_variant', { id: tiktok, reason: 'No time to edit' });
+    expect(post.variants.map((v: any) => v.platform)).toEqual(['instagram']);
+    expect(await log(tiktok)).toEqual([
+      { actor: 'owner', field: 'removed_at', reason: 'No time to edit' },
+    ]);
+    expect((await app('week')).items.map((i: any) => i.platform)).toEqual(['instagram']);
+    expect(await postNow()).toEqual(['Lab day (instagram)']);
+    await expect(app('mark_posted', { variantId: tiktok })).rejects.toThrow('No variant');
+    await expect(app('remove_variant', { id: post.variants[0].id })).rejects.toThrow(
+      'only variant',
+    );
+  });
+});

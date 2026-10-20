@@ -79,6 +79,7 @@ Each requirement has an ID that tests reference (e.g. `it('FR-2: rejects capture
 | FR-3 | The owner MUST be able to edit every post and variant field, including dates, on phone and PC | Every change appends to changeLog with actor, field, old value, new value and timestamp |
 | FR-4 | Each post MUST support one variant per platform | Allowed formats: Instagram reel, carousel, photo, story; TikTok video, photo; LinkedIn text, image, document, video. A LinkedIn reel is rejected |
 | FR-5 | Marking a variant posted MUST set postedAt, start the reply timer and create check-ins | Check-ins at day 3 and 7 for all platforms, plus day 14 for TikTok |
+| FR-29 | The owner and Claude MUST be able to add a variant to an existing post and remove one | Adding follows FR-4 (a removed platform can be added again). Removing hides the variant (removedAt) and logs it in changeLog; a posted variant or a post's last variant cannot be removed. Removed variants leave the calendar, balance rules, reminders, check-ins and reports |
 
 ### 3.2 Calendar and approval
 
@@ -258,7 +259,7 @@ Postgres (Supabase). Every table has `id uuid pk`, `owner_id uuid` (row-level se
 | Table | Columns (beyond the common ones) | Constraints |
 | --- | --- | --- |
 | posts | title text, pillar, topics topic[], status stage, go_live_at, notes text, is_leftovers bool, idea_id → ideas, created_by actor, reminder_overrides jsonb | status default idea; created_by = claude (or any insert by `cadence_mcp`) forces status proposed on insert; linking an idea marks it promoted |
-| variants | post_id → posts, platform, format, language, caption, hook, hashtags text[], scheduled_at, scheduled_natively bool, posted_at, url | unique (post_id, platform); format allowed for platform (FR-4) |
+| variants | post_id → posts, platform, format, language, caption, hook, hashtags text[], scheduled_at, scheduled_natively bool, posted_at, url, created_by actor, removed_at | unique (post_id, platform) among variants not removed; format allowed for platform (FR-4); a posted variant cannot be removed (FR-29); created_by = claude for anything cadence_mcp inserts |
 | change_log | entity_type, entity_id, actor, field, old_value jsonb, new_value jsonb, reason text, at | insert-only; written by triggers on posts and variants |
 | media | storage_path, kind (photo, video), tags text[], taken_at, size_bytes | size ≤ settings.max_upload_mb |
 | post_media, idea_media | post_id or idea_id, media_id | composite pk |
@@ -299,6 +300,8 @@ A remote MCP server over Streamable HTTP, written in TypeScript with the officia
 | review_idea | ideaId, scores (5 × 1–3), notes, alternatives (≥ 1) | Stored verdict, computed by core | Yes |
 | propose_post | title, pillar, topics, goLiveAt, variants[], ideaId?, isLeftovers?, notes? | Post (status proposed) + balance warnings | Yes |
 | update_post / update_variant | id, patch, reason | Updated entity + balance warnings | Yes |
+| add_variant | postId, variant (platform, format, scheduledAt?, caption?, hook?, hashtags?, language?), reason | Post + balance warnings | Yes |
+| remove_variant | id, reason | Hides a variant (sets removedAt); posted variants and a post's last variant are refused. Post + balance warnings | Yes |
 | update_milestone | id, outcome, decision | Milestone | Yes |
 | create_trigger / resolve_trigger | T4 + platform + note / id + note | Trigger | Yes |
 | list_tasks | from, to, postId?, done? | Tasks (not deleted) | No |
@@ -309,7 +312,7 @@ A remote MCP server over Streamable HTTP, written in TypeScript with the officia
 
 ### 6.2 Safety rules
 
-1. The `cadence_mcp` database role has no DELETE grant, so Claude never erases data. The only delete-like tool, `delete_task`, hides a task Claude created (sets cancelled_at) and is annotated destructive so clients confirm.
+1. The `cadence_mcp` database role has no DELETE grant, so Claude never erases data. The delete-like tools hide instead of erasing and are annotated destructive so clients confirm: `delete_task` hides a task Claude created (sets cancelled_at); `remove_variant` hides a variant (sets removed_at).
 2. Claude cannot change a post's stage, with one exception: `withdraw_post` moves Claude's own proposal from proposed to archived. Owner approval is the only path forward from proposed. update_post and update_variant reject `status` and `postedAt` in a patch.
 3. Every write logs to change_log with actor = claude and the `reason` given.
 4. Write tools are rate-limited (default 60 writes per hour) and return a clear error when the limit is hit.
@@ -407,7 +410,7 @@ Build in this order: pure logic first (M1–M3), then data (M4), then the connec
 | M2 · Core: rules | Balance R1–R8, check-in generation, weekly report, triggers T1–T3 | One fires and one does-not-fire fixture per rule; T1 needs exactly 4 weeks of data; missing metrics stay null | Every rule has both fixtures; coverage ≥ 90% | R1–R8, T1–T3, FR-5, FR-8, FR-17 |
 | M3 · Core: reminders | Reminder generator, quiet hours, idempotent keys, send-time re-check, LinkedIn fallback, milestone seeding | Generating twice yields the same set (property test); urgent reminders ignore quiet hours; LI_FALLBACK cancelled if a capture exists | All 14 reminder codes tested (REPLY_START and REPLY_END count separately) | FR-13, FR-16, FR-21, FR-23, REM codes |
 | M4 · Database | Migrations, RLS, `cadence_mcp` role, constraints, created_by = claude forces proposed, insert-only change_log | pgTAP: another user sees 0 rows; `cadence_mcp` DELETE fails; LinkedIn reel insert fails | All tables covered by pgTAP | FR-1, FR-3, FR-26, NFR-6 |
-| M5 · MCP connector | All tools, safety rules, rate limit, OAuth, server instructions | Contract: update_post with `status` is rejected; propose_post returns status proposed + warnings; every write logs actor = claude | Added to claude.ai as a custom connector; Claude proposes a real post end to end | FR-28, section 6 |
+| M5 · MCP connector | All tools, safety rules, rate limit, OAuth, server instructions | Contract: update_post with `status` is rejected; propose_post returns status proposed + warnings; every write logs actor = claude | Added to claude.ai as a custom connector; Claude proposes a real post end to end | FR-28, FR-29, section 6 |
 | M6 · App: core flows | Sign-in, idea quick-add, approval inbox, post editor, week calendar, media bank, settings, export | Playwright on iPhone viewport: add an idea in ≤ 3 taps; approve a proposed post; change a date in ≤ 2 taps; axe finds 0 violations | All flows pass on WebKit iPhone viewport | FR-6, FR-7, FR-9, FR-11, FR-12, FR-24, FR-25, FR-27, NFR-1, NFR-2 |
 | M7 · Notifications | Service worker, tap-triggered push subscription, scheduler on pg_cron + Edge Function, push sender, Google Calendar sync, reply timer | Running the scheduler twice sends nothing twice; calendar sync updates instead of duplicating; permission prompt only after a tap | Manual check: a real push arrives on the iPhone from the Home Screen app | FR-14, FR-15, FR-16, NFR-3, NFR-7 |
 | M8 · Weekly loop + polish | Weekly report screen, Report to Claude, check-in and follower forms, chart, milestones and triggers UI, offline sync, performance budget | Report matches section 4.5 for a seeded week; offline edit syncs on reconnect; Lighthouse within budget | 2-week pilot with real posts; bugs from the pilot fixed | FR-17–FR-22, NFR-4, NFR-5, NFR-9 |
