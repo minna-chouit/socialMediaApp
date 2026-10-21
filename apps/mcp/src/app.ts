@@ -481,7 +481,8 @@ export const APP_ACTIONS: Record<string, Action> = {
     return readPost(ctx.tx, variant.post_id, ctx.settings.timezone);
   },
 
-  mark_posted: async ({ variantId }, ctx) => {
+  // postedAt (optional, owner only) lets a late tap record when it really went live.
+  mark_posted: async ({ variantId, postedAt }, ctx) => {
     const [v] = await ctx.tx.query<{
       post_id: string;
       platform: string;
@@ -493,7 +494,18 @@ export const APP_ACTIONS: Record<string, Action> = {
     );
     if (!v) throw new ToolError(`No variant with id ${variantId}`);
     if (v.posted_at) throw new ToolError('Already marked posted');
-    const now = ctx.deps.clock.now();
+    let now = ctx.deps.clock.now();
+    if (postedAt) {
+      let at: Temporal.Instant;
+      try {
+        at = Temporal.Instant.from(String(postedAt));
+      } catch {
+        throw new ToolError('That is not a valid posted time');
+      }
+      if (Temporal.Instant.compare(at, now) > 0)
+        throw new ToolError('The posted time cannot be in the future');
+      now = at;
+    }
     const variant = { id: String(variantId), platform: v.platform, format: v.format } as Parameters<
       typeof markPosted
     >[0];

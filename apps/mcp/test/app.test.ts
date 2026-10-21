@@ -99,6 +99,27 @@ describe('owner web app', () => {
     );
   });
 
+  it('FR-5: a late mark posted can give the real posted time; check-ins count from it', async () => {
+    const { variantIds } = await seedPost(pg, { title: 'Late', goLiveAt: '2026-10-18T19:30:00Z' }, [
+      { platform: 'tiktok', format: 'video' },
+    ]);
+    await expect(
+      app('mark_posted', { variantId: variantIds[0], postedAt: '2026-10-22T12:00:00Z' }),
+    ).rejects.toThrow('cannot be in the future');
+    const post = await app('mark_posted', {
+      variantId: variantIds[0],
+      postedAt: '2026-10-18T20:30:00+01:00',
+    });
+    expect(post.variants[0].postedAt).toBe('2026-10-18T20:30:00+01:00');
+    const { rows } = await pg.query<{ due: string }>(
+      `select to_char(due_at at time zone 'Africa/Algiers', 'YYYY-MM-DD HH24:MI') as due
+         from public.checkins where day_offset = 3`,
+    );
+    expect(rows[0].due).toBe('2026-10-21 20:00');
+    // Day 3 is due tonight, so it shows in Stats.
+    expect((await app('checkins')).map((c: any) => c.dayOffset)).toEqual([3]);
+  });
+
   it('FR-6: the week runs Saturday to Friday in local time; changing a date is one update', async () => {
     const { postId } = await seedPost(pg, { title: 'Tuesday', goLiveAt: '2026-10-20T17:00:00Z' });
     const week = await app('week');

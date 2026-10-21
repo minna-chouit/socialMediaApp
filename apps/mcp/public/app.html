@@ -307,7 +307,7 @@
                   .map(
                     (v) => `<div class="row" style="margin-top:8px">
                       <span class="muted">${esc(v.platform)} · ${esc(v.format)} · ${esc(when(v.goLiveAt))}</span>
-                      ${v.postedAt ? '<span class="pill">posted</span>' : `<button class="act" data-posted="${v.variantId}">Mark posted</button>`}
+                      ${v.postedAt ? '<span class="pill">posted</span>' : `<input type="datetime-local" data-posted-at="${v.variantId}" aria-label="Posted at (${esc(v.platform)}; leave empty for now)"><button class="act" data-posted="${v.variantId}">Mark posted</button>`}
                     </div>`,
                   )
                   .join('')}
@@ -760,8 +760,16 @@
         if (!b) return;
         if (b.dataset.approve) act('approve', { id: b.dataset.approve }, 'Approved');
         if (b.dataset.advance) act('advance', { id: b.dataset.advance }, 'Moved to the next stage');
-        if (b.dataset.posted)
-          act('mark_posted', { variantId: b.dataset.posted }, 'Marked posted; check-ins created');
+        if (b.dataset.posted) {
+          // Empty means now; a late tap can give the real time it went live.
+          const at = main.querySelector(`[data-posted-at="${b.dataset.posted}"]`)?.value;
+          const postedAt = at ? new Date(at).toISOString() : undefined;
+          act(
+            'mark_posted',
+            { variantId: b.dataset.posted, postedAt },
+            'Marked posted; check-ins created',
+          );
+        }
         if (b.dataset.edit) openEditor(b.dataset.edit).catch((err) => toast(err.message));
         if (b.dataset.week) {
           weekOffset += Number(b.dataset.week);
